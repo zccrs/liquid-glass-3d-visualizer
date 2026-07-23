@@ -79,6 +79,45 @@
 - UI：左侧 3D 视图，右侧参数面板（滑条 + 数值 + 说明文字）
 - 两个视图可切换（Tab）或并排（宽屏）
 
+
+## 视图 B：底部贴图折射
+
+### 目标
+
+视图 B 支持上传一张图片作为玻璃底部内容。上传后，用户透过玻璃看到的不是原始平铺图片，而是按 Treeland Liquid Glass 折射近似计算后的图片采样结果。
+
+### UI
+
+- 侧栏新增 `上传底部贴图` 区域。
+- `<input type="file" accept="image/*">` 只接受图片。
+- 未上传图片时使用程序生成的 checker/grid 纹理，保证默认视图仍可说明折射效果。
+- 上传新图片会立即替换底部贴图并重建视图 B。
+
+### 场景结构
+
+- `baseImagePlane`：位于玻璃底部下方，显示原始图片，作为未折射参考。
+- `refractedImageMesh`：复用玻璃顶面轮廓网格，使用 `ShaderMaterial` 采样同一张图片；该层位于玻璃顶面稍下方，表现“透过玻璃看到的图片”。
+- 现有玻璃体材质、尺寸线、图例和参数滑条保持不变。
+
+### 折射模型
+
+- 片元坐标映射到玻璃局部坐标 `(x, y)`。
+- 用 rounded-rect SDF 近似 2D 外法线方向。
+- 用 `t`、`profilePower`、`thickness/bezelWidth` 计算表面斜率。
+- 用 `ior` 和 Snell 关系计算 `tanθt`。
+- 用 shader 公式近似位移：
+  `magG = H·contentRamp·max(slopeMag−tanθt, 0)`。
+- `contentRamp = mix(contentEdgePull, 1, smoothstep(0, contentRampEnd, t))`。
+- `refractionMaxTan` 截断 `slopeMag`。
+- UV 沿外法线方向偏移并 clamp 到图片边界。
+
+### 验证
+
+- 浏览器测试生成一张临时 PNG 并上传。
+- 上传后检查 `window.__viz.textureLoaded === true`。
+- 检查视图 B 中存在折射层 mesh，且其 uniforms 随 `ior`、`contentEdgePull` 等滑条更新。
+- 截图确认上传图片在玻璃下方可见，玻璃边缘区域出现折射拉伸。
+
 ## 文件
 
 - `docs/superpowers/specs/2026-07-23-liquid-glass-visualizer-design.md` — 本文档

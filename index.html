@@ -43,6 +43,10 @@
   .legend .sw.dot { width: 10px; height: 10px; border-radius: 50%; margin: 0 6px; }
   .legend .sw.dash { height: 2px; background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px); }
   .legend .sw.grad { background: linear-gradient(90deg, #f59e0b, #38bdf8, #e8f6ff); }
+  .upload-panel { margin: 0 0 16px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; }
+  .upload-title { font-size: 13px; color: #f1f5f9; margin-bottom: 8px; font-weight: 600; }
+  .upload-panel input { width: 100%; color: #b6c2d2; font-size: 12px; }
+  .upload-desc { margin-top: 8px; font-size: 12px; color: #94a3b8; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -84,6 +88,11 @@
       <div class="item"><span class="sw" style="background:#c084fc"></span>thickness 尺寸线</div>
       <div class="item" style="color:#64748b">radius &lt; bezelWidth 时角区色带撑宽（expanding-corners 分支）</div>
     </div>
+    <div class="upload-panel">
+      <div class="upload-title">上传底部贴图</div>
+      <input id="textureUpload" type="file" accept="image/*">
+      <div class="upload-desc">只作用于视图 B；上传后玻璃下方图片会按折射参数产生位移。</div>
+    </div>
     <div id="controls"></div>
     <div class="note">specular / tint / brightness / contrast / saturation / blur 仅影响着色，不改变几何与折射光路，故不在本工具中展示。<br><br>视图①为玻璃<b>右边缘的垂直剖面</b>（x = 距轮廓距离，z = 厚度方向）；视图②为完整圆角矩形玻璃体。</div>
   </div>
@@ -100,6 +109,37 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+function createDefaultTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 512;
+  const ctx = c.getContext('2d');
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+    ctx.fillStyle = (x + y) % 2 ? '#dbeafe' : '#1d4ed8';
+    ctx.fillRect(x * 64, y * 64, 64, 64);
+  }
+  ctx.strokeStyle = '#f97316'; ctx.lineWidth = 10;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(512, 512); ctx.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  return tex;
+}
+
+const textureState = { imageTexture: createDefaultTexture(), textureLoaded: false };
+function setImageTexture(texture, loaded) {
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  if (textureState.textureLoaded && textureState.imageTexture) textureState.imageTexture.dispose();
+  textureState.imageTexture = texture;
+  textureState.textureLoaded = loaded;
+  window.__viz.textureLoaded = loaded;
+  rebuild();
+}
+
 /* ============ 参数（默认值与 treeland dconfig / GlassEffect.qml 一致） ============ */
 const PARAMS = {
   width:            { v: 300, min: 20,  max: 400, step: 1,    views: 'A+B', desc: '玻璃元素宽度（px），即 shader 中 itemSize.x。决定圆角矩形外框。' },
@@ -109,10 +149,10 @@ const PARAMS = {
   thickness:        { v: 50,  min: 10,  max: 200, step: 1,    views: 'A+B', desc: '玻璃基础厚度（px）。剖面最大高度 H = h(t)·thickness，同时直接放大折射位移。' },
   profilePower:     { v: 4,   min: 1,   max: 8,   step: 0.1,  views: 'A+B', desc: '剖面曲线指数 p：h = (1−(1−t)^p)^(1/p)。shader 固定 p=4（squircle），p=2 为圆弧，p 越大边缘越陡。【可视化扩展参数】' },
   cornerField:      { v: 0,   min: 0,   max: 2,   step: 1,    views: 'A+B', desc: '角区 t 场策略：0=自动（radius <= bezelWidth 时用 smooth 角区场，避免 shader 平台折痕）；1=强制当前 shader；2=强制双边平滑。' },
-  ior:              { v: 1.5, min: 1.0, max: 3.0, step: 0.01, views: 'A',   desc: '折射率。Snell 定律 sinθt = sinθi / ior。1.5 ≈ 普通玻璃。' },
-  refractionMaxTan: { v: 2.75,min: 0.1, max: 8,   step: 0.05, views: 'A',   desc: '几何斜率 tanθi 的上限。轮廓附近剖面导数趋于无穷，靠它截断避免尖刺。效果见背景图表中的青绿色曲线与白色虚线。' },
-  contentEdgePull:  { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A',   desc: '唇边保留的拉拽比例 (0–1)，即 t=0 处 contentRamp 的下限。GlassEffect.qml 未绑定此 uniform，实际运行值为 0。效果见背景图表中的橙色曲线。' },
-  contentRampEnd:   { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A',   desc: '拉拽在 bezel 内达到满值的 t（shader 内 clamp 到 ≥0.05）。未绑定时实际为 0.05。效果见背景图表中的橙色曲线。' },
+  ior:              { v: 1.5, min: 1.0, max: 3.0, step: 0.01, views: 'A+B', desc: '折射率。Snell 定律 sinθt = sinθi / ior。1.5 ≈ 普通玻璃；视图 B 中会改变底部贴图折射强度。' },
+  refractionMaxTan: { v: 2.75,min: 0.1, max: 8,   step: 0.05, views: 'A+B', desc: '几何斜率 tanθi 的上限。视图 A 看曲线；视图 B 中限制底部贴图位移，避免边缘尖刺。' },
+  contentEdgePull:  { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '唇边保留的拉拽比例 (0–1)，即 t=0 处 contentRamp 的下限。视图 B 中影响贴图靠边处的位移。' },
+  contentRampEnd:   { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '拉拽在 bezel 内达到满值的 t（shader 内 clamp 到 ≥0.05）。视图 B 中影响贴图折射从边缘到内侧的过渡。' },
   rayPos:           { v: 0.25,min: 0,   max: 1,   step: 0.005,views: 'A',   desc: '光线沿四分之一轮廓的位置：0=顶边中点，1=右边中点，中间经过圆角。' },
   rayT:             { v: 0.5, min: 0.02,max: 0.98,step: 0.01, views: 'A',   desc: '光线命中点位置 t：0 = 轮廓边缘，1 = 平坦区起点。移动它观察角区/直边的斜率与折射。' },
 };
@@ -253,7 +293,7 @@ function makeScene() {
   return { scene, camera, controls, group: null, fitted: false };
 }
 const viewA = makeScene(), viewB = makeScene();
-window.__viz = { viewA, viewB }; // 调试句柄
+window.__viz = { viewA, viewB, textureLoaded: false }; // 调试句柄
 let active = viewA, activeName = 'A';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -569,6 +609,74 @@ function sdGrad(x, y, hx, hy, r) {
   return [gx / l, gy / l];
 }
 
+function makeRefractedMaterial(P, hx, hy, tex) {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: {
+      map: { value: tex },
+      halfSize: { value: new THREE.Vector2(hx, hy) },
+      radius: { value: P.radius },
+      bezelWidth: { value: P.bezelWidth },
+      thickness: { value: P.thickness },
+      ior: { value: P.ior },
+      refractionMaxTan: { value: P.refractionMaxTan },
+      contentEdgePull: { value: P.contentEdgePull },
+      contentRampEnd: { value: P.contentRampEnd },
+      profilePower: { value: P.profilePower },
+    },
+    vertexShader: `
+      varying vec2 vLocal;
+      void main() {
+        vLocal = position.xy;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      uniform sampler2D map;
+      uniform vec2 halfSize;
+      uniform float radius, bezelWidth, thickness, ior, refractionMaxTan, contentEdgePull, contentRampEnd, profilePower;
+      varying vec2 vLocal;
+      float sdRound(vec2 p, vec2 b, float r) {
+        vec2 q = abs(p) - (b - vec2(r));
+        return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
+      }
+      vec2 sdfNormal(vec2 p) {
+        float e = 0.5;
+        float dx = sdRound(p + vec2(e, 0.0), halfSize, radius) - sdRound(p - vec2(e, 0.0), halfSize, radius);
+        float dy = sdRound(p + vec2(0.0, e), halfSize, radius) - sdRound(p - vec2(0.0, e), halfSize, radius);
+        return normalize(vec2(dx, dy) + vec2(1e-5));
+      }
+      float fieldT(vec2 p) {
+        float dist = -sdRound(p, halfSize, radius);
+        return clamp(dist / max(bezelWidth, 1.0), 0.0, 1.0);
+      }
+      void main() {
+        vec2 uv = vLocal / (halfSize * 2.0) + 0.5;
+        float t = fieldT(vLocal);
+        float s = 1.0 - t;
+        float p = max(profilePower, 1.0);
+        float inside = max(1.0 - pow(s, p), 1e-4);
+        float h = pow(inside, 1.0 / p);
+        float deriv = pow(s, p - 1.0) * h / inside;
+        float rawTan = deriv * (thickness / max(bezelWidth, 1.0));
+        float slopeMag = min(rawTan, max(refractionMaxTan, 0.1));
+        float sinI = slopeMag / sqrt(1.0 + slopeMag * slopeMag);
+        float sinT = clamp(sinI / max(ior, 1.0001), 0.0, 0.999);
+        float tanT = sinT / sqrt(max(1.0 - sinT * sinT, 1e-4));
+        float rampEnd = max(contentRampEnd, 1e-4);
+        float ramp = mix(contentEdgePull, 1.0, smoothstep(0.0, rampEnd, t));
+        float maxDisp = min(min(bezelWidth * 0.85, thickness * 0.75), 48.0);
+        float magG = min(thickness * h * ramp * max(slopeMag - tanT, 0.0), maxDisp);
+        vec2 duv = sdfNormal(vLocal) * magG / (halfSize * 2.0);
+        vec4 color = texture2D(map, clamp(uv + duv, vec2(0.001), vec2(0.999)));
+        gl_FragColor = vec4(color.rgb, 0.82);
+      }
+    `,
+  });
+}
+
 function buildViewB(group) {
   const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
   const hx = P.width / 2, hy = P.height / 2;
@@ -611,12 +719,39 @@ function buildViewB(group) {
   const tg = new THREE.BufferGeometry();
   tg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   tg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const uv = [];
+  for (let i = 0; i < pos.length; i += 3) uv.push(pos[i] / (hx * 2) + 0.5, pos[i + 1] / (hy * 2) + 0.5);
+  tg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   tg.setIndex(idx);
   tg.computeVertexNormals();
-  group.add(new THREE.Mesh(tg, new THREE.MeshPhysicalMaterial({
-    vertexColors: true, transparent: true, opacity: 0.88, roughness: 0.12, metalness: 0,
-    clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide,
-  })));
+  const bg = tg.clone();
+  const bp = bg.attributes.position.array;
+  for (let i = 2; i < bp.length; i += 3) bp[i] = -skirt - 1;
+  bg.attributes.position.needsUpdate = true;
+  bg.computeVertexNormals();
+  const base = new THREE.Mesh(
+    bg,
+    new THREE.MeshBasicMaterial({ map: textureState.imageTexture, transparent: true, opacity: 0.72, side: THREE.DoubleSide })
+  );
+  base.renderOrder = 0;
+  group.add(base);
+  viewB.baseImagePlane = base;
+
+  const rg = tg.clone();
+  const rp = rg.attributes.position.array;
+  for (let i = 2; i < rp.length; i += 3) rp[i] -= 0.6;
+  rg.attributes.position.needsUpdate = true;
+  const refracted = new THREE.Mesh(rg, makeRefractedMaterial(P, hx, hy, textureState.imageTexture));
+  refracted.renderOrder = 1;
+  group.add(refracted);
+  viewB.refractedMesh = refracted;
+
+  const topMesh = new THREE.Mesh(tg, new THREE.MeshPhysicalMaterial({
+    vertexColors: true, transparent: true, opacity: 0.56, roughness: 0.12, metalness: 0,
+    clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide, depthWrite: false,
+  }));
+  topMesh.renderOrder = 2;
+  group.add(topMesh);
 
   /* --- 侧壁 + 底面（与顶面 t=0 环同高，无缝衔接） --- */
   const m = loop.length;
@@ -688,12 +823,22 @@ for (const [key, o] of Object.entries(PARAMS)) {
   controlsBox.appendChild(div);
 }
 
+document.getElementById('textureUpload').addEventListener('change', ev => {
+  const file = ev.target.files?.[0];
+  if (!file || !file.type.startsWith('image/')) return;
+  const url = URL.createObjectURL(file);
+  new THREE.TextureLoader().load(url, tex => {
+    URL.revokeObjectURL(url);
+    setImageTexture(tex, true);
+  });
+});
+
 function disposeGroup(g) {
   g.traverse(o => {
     if (o.geometry) o.geometry.dispose();
     if (o.material) {
       const ms = Array.isArray(o.material) ? o.material : [o.material];
-      ms.forEach(mm => { if (mm.map) mm.map.dispose(); mm.dispose(); });
+      ms.forEach(mm => { if (mm.map && mm.map !== textureState.imageTexture) mm.map.dispose(); mm.dispose(); });
     }
   });
 }
