@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Treeland Liquid Glass · 参数 3D 可视化</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; background: #0f141b; color: #dce3ec; }
+  #app { display: flex; height: 100%; }
+  #viewport { flex: 1; position: relative; min-width: 0; }
+  canvas { display: block; }
+  #tabs { position: absolute; top: 12px; left: 12px; z-index: 10; display: flex; gap: 8px; }
+  #tabs button {
+    padding: 8px 16px; border: 1px solid #33415580; border-radius: 8px; cursor: pointer;
+    background: #1a2332cc; color: #9fb0c5; font-size: 14px; backdrop-filter: blur(6px);
+  }
+  #tabs button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  #readout {
+    position: absolute; left: 12px; bottom: 12px; z-index: 10; padding: 10px 14px;
+    background: #1a2332d9; border: 1px solid #33415580; border-radius: 8px;
+    font-family: "SF Mono", Consolas, monospace; font-size: 12.5px; line-height: 1.75; white-space: pre;
+    display: none;
+  }
+  #sidebar {
+    width: 340px; flex-shrink: 0; overflow-y: auto; padding: 16px;
+    background: #151c27; border-left: 1px solid #2a3546;
+  }
+  #sidebar h1 { font-size: 16px; margin-bottom: 4px; color: #f1f5f9; }
+  #sidebar .sub { font-size: 12px; color: #7d8da3; margin-bottom: 14px; line-height: 1.5; }
+  .param { margin-bottom: 12px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; }
+  .param .head { display: flex; justify-content: space-between; align-items: baseline; }
+  .param .name { font-family: Consolas, monospace; font-size: 13.5px; color: #7dd3fc; font-weight: 600; }
+  .param .views { font-size: 10px; color: #64748b; margin-left: 6px; font-family: inherit; }
+  .param .val { font-family: Consolas, monospace; font-size: 13px; color: #fbbf24; }
+  .param input[type=range] { width: 100%; margin: 8px 0 6px; accent-color: #2563eb; }
+  .param .desc { font-size: 12px; color: #94a3b8; line-height: 1.55; }
+  .note { font-size: 11.5px; color: #64748b; line-height: 1.6; margin-top: 14px; padding-top: 12px; border-top: 1px dashed #2a3546; }
+  .legend { margin: 0 0 16px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; font-size: 12px; }
+  .legend h2 { font-size: 13px; color: #f1f5f9; margin-bottom: 8px; }
+  .legend .item { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; color: #b6c2d2; line-height: 1.4; }
+  .legend .sw { width: 22px; height: 4px; border-radius: 2px; flex-shrink: 0; }
+  .legend .sw.dot { width: 10px; height: 10px; border-radius: 50%; margin: 0 6px; }
+  .legend .sw.dash { height: 2px; background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px); }
+  .legend .sw.grad { background: linear-gradient(90deg, #f59e0b, #38bdf8, #e8f6ff); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="viewport">
+    <div id="tabs">
+      <button id="tabA" class="active">① 四分之一玻璃光路图</button>
+      <button id="tabB">② 玻璃 3D 形状</button>
+    </div>
+    <div id="readout"></div>
+  </div>
+  <div id="sidebar">
+    <h1>Liquid Glass 参数</h1>
+    <div class="sub">与 <code>misc/shaders/liquidglass.frag</code> 的 uniform 一一对应。拖动滑条，3D 视图实时重建；鼠标拖动旋转、滚轮缩放。</div>
+    <div class="legend" id="legendA">
+      <h2>颜色图例 · 四分之一玻璃光路图</h2>
+      <div class="item"><span class="sw" style="background:#fde047"></span>入射光（视线，竖直向下）与 θi 弧</div>
+      <div class="item"><span class="sw dash" style="color:#94a3b8"></span>法线 N（虚线）</div>
+      <div class="item"><span class="sw" style="background:#4ade80"></span>折射光与 θt 弧（sinθt = sinθi/ior）</div>
+      <div class="item"><span class="sw dash" style="color:#64748b"></span>无折射参考位置（虚线）</div>
+      <div class="item"><span class="sw" style="background:#f87171"></span>折射位移 Δ（背景采样向内偏移）</div>
+      <div class="item"><span class="sw" style="background:#fbbf24"></span>bezelWidth 尺寸线（t: 0→1 过渡带宽）</div>
+      <div class="item"><span class="sw" style="background:#c084fc"></span>thickness 尺寸线（剖面最大高度 H）</div>
+      <div class="item"><span class="sw" style="background:#38bdf8"></span>剖切立面轮廓；顶面橙→蓝→白 = t:0→1</div>
+      <div class="item"><span class="sw grad"></span>四分之一玻璃显示圆角 + 相邻两条直边，用 rayPos 沿轮廓移动光线</div>
+      <div class="item"><span class="sw" style="background:#e879f9"></span>shader 实际采样位移 magG（箭头 + 图表曲线）</div>
+      <div class="item"><span class="sw" style="background:#fb923c"></span>contentRamp(t) 曲线（contentEdgePull / contentRampEnd）</div>
+      <div class="item"><span class="sw" style="background:#2dd4bf"></span>tanθi(t) 曲线（实线=截断后，虚线=原始）</div>
+      <div class="item" style="color:#64748b">背景图表仍显示直边剖面曲线；角区处理看顶面色带与光路。θi / θt / 位移数值见左下角读数</div>
+    </div>
+    <div class="legend" id="legendB" style="display:none">
+      <h2>颜色图例 · 玻璃 3D 形状</h2>
+      <div class="item"><span class="sw grad"></span>bezel 过渡区（顶点色，t: 0→1）</div>
+      <div class="item"><span class="sw" style="background:#e8f6ff"></span>平坦区（t=1）与轮廓线</div>
+      <div class="item"><span class="sw" style="background:#fbbf24"></span>width 尺寸线</div>
+      <div class="item"><span class="sw" style="background:#4ade80"></span>height 尺寸线</div>
+      <div class="item"><span class="sw" style="background:#f472b6"></span>radius 圆角弧 + 半径箭头</div>
+      <div class="item"><span class="sw" style="background:#22d3ee"></span>bezelWidth 尺寸线</div>
+      <div class="item"><span class="sw" style="background:#c084fc"></span>thickness 尺寸线</div>
+      <div class="item" style="color:#64748b">radius &lt; bezelWidth 时角区色带撑宽（expanding-corners 分支）</div>
+    </div>
+    <div id="controls"></div>
+    <div class="note">specular / tint / brightness / contrast / saturation / blur 仅影响着色，不改变几何与折射光路，故不在本工具中展示。<br><br>视图①为玻璃<b>右边缘的垂直剖面</b>（x = 距轮廓距离，z = 厚度方向）；视图②为完整圆角矩形玻璃体。</div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ============ 参数（默认值与 treeland dconfig / GlassEffect.qml 一致） ============ */
+const PARAMS = {
+  width:            { v: 300, min: 20,  max: 400, step: 1,    views: 'A+B', desc: '玻璃元素宽度（px），即 shader 中 itemSize.x。决定圆角矩形外框。' },
+  height:           { v: 200, min: 20,  max: 400, step: 1,    views: 'A+B', desc: '玻璃元素高度（px），itemSize.y。' },
+  radius:           { v: 60,  min: 0,   max: 200, step: 1,    views: 'A+B', desc: '圆角半径（px）。radius < bezelWidth 时走 expanding-corners 分支。' },
+  bezelWidth:       { v: 60,  min: 2,   max: 60,  step: 1,    views: 'A+B', desc: '边缘过渡带宽度（px）：从轮廓 (t=0) 到平坦区 (t=1) 的距离。曲面只存在于这一窄带内。' },
+  thickness:        { v: 50,  min: 10,  max: 200, step: 1,    views: 'A+B', desc: '玻璃基础厚度（px）。剖面最大高度 H = h(t)·thickness，同时直接放大折射位移。' },
+  profilePower:     { v: 4,   min: 1,   max: 8,   step: 0.1,  views: 'A+B', desc: '剖面曲线指数 p：h = (1−(1−t)^p)^(1/p)。shader 固定 p=4（squircle），p=2 为圆弧，p 越大边缘越陡。【可视化扩展参数】' },
+  cornerField:      { v: 0,   min: 0,   max: 2,   step: 1,    views: 'A+B', desc: '角区 t 场策略：0=自动（radius <= bezelWidth 时用 smooth 角区场，避免 shader 平台折痕）；1=强制当前 shader；2=强制双边平滑。' },
+  ior:              { v: 1.5, min: 1.0, max: 3.0, step: 0.01, views: 'A',   desc: '折射率。Snell 定律 sinθt = sinθi / ior。1.5 ≈ 普通玻璃。' },
+  refractionMaxTan: { v: 2.75,min: 0.1, max: 8,   step: 0.05, views: 'A',   desc: '几何斜率 tanθi 的上限。轮廓附近剖面导数趋于无穷，靠它截断避免尖刺。效果见背景图表中的青绿色曲线与白色虚线。' },
+  contentEdgePull:  { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A',   desc: '唇边保留的拉拽比例 (0–1)，即 t=0 处 contentRamp 的下限。GlassEffect.qml 未绑定此 uniform，实际运行值为 0。效果见背景图表中的橙色曲线。' },
+  contentRampEnd:   { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A',   desc: '拉拽在 bezel 内达到满值的 t（shader 内 clamp 到 ≥0.05）。未绑定时实际为 0.05。效果见背景图表中的橙色曲线。' },
+  rayPos:           { v: 0.25,min: 0,   max: 1,   step: 0.005,views: 'A',   desc: '光线沿四分之一轮廓的位置：0=顶边中点，1=右边中点，中间经过圆角。' },
+  rayT:             { v: 0.5, min: 0.02,max: 0.98,step: 0.01, views: 'A',   desc: '光线命中点位置 t：0 = 轮廓边缘，1 = 平坦区起点。移动它观察角区/直边的斜率与折射。' },
+};
+
+/* ============ 数学：逐行移植自 liquidglass.frag ============ */
+const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
+
+function sdRoundedRect(px, py, hx, hy, r) {
+  const rr = Math.min(Math.max(r, 0), Math.min(hx, hy));
+  const qx = Math.abs(px) - hx + rr, qy = Math.abs(py) - hy + rr;
+  return Math.min(Math.max(qx, qy), 0) + Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) - rr;
+}
+
+function roundedRectNormal(px, py, hx, hy, r) {
+  const rr = Math.min(Math.max(r, 0), Math.min(hx, hy));
+  const ix = hx - rr, iy = hy - rr;
+  const dx = px - clamp(px, -ix, ix), dy = py - clamp(py, -iy, iy);
+  const l2 = dx * dx + dy * dy;
+  if (l2 > 1e-8) { const il = 1 / Math.sqrt(l2); return [dx * il, dy * il]; }
+  const ex = hx - Math.abs(px), ey = hy - Math.abs(py);
+  return ex < ey ? [Math.sign(px), 0] : [0, Math.sign(py)];
+}
+
+// expanding-corners 分支的 bezel 场（含角区外扩）
+function getFieldT(px, py, hx, hy, outerRadius, bezel) {
+  const rr = Math.min(Math.max(outerRadius, 0), Math.min(hx, hy));
+  const dx = hx - Math.abs(px), dy = hy - Math.abs(py);
+  let outer, inner, dist;
+  if (dy <= dx) {
+    outer = dx < rr ? rr - Math.sqrt(Math.max(0, dx * (2 * rr - dx))) : 0;
+    inner = dx < bezel ? bezel - Math.sqrt(Math.max(0, dx * (2 * bezel - dx))) : bezel;
+    dist = dy - outer;
+  } else {
+    outer = dy < rr ? rr - Math.sqrt(Math.max(0, dy * (2 * rr - dy))) : 0;
+    inner = dy < bezel ? bezel - Math.sqrt(Math.max(0, dy * (2 * bezel - dy))) : bezel;
+    dist = dx - outer;
+  }
+  return clamp(dist / Math.max(inner - outer, 1e-4), 0, 1);
+}
+
+// 剖面曲线 h=(1-(1-t)^p)^(1/p)：返回 [h, dh/dt]（shader 固定 p=4，即 squircle）
+function surfaceProfile(t, p = PARAMS.profilePower.v) {
+  const s = 1 - clamp(t, 0, 1);
+  const inside = Math.max(1 - Math.pow(s, p), 1e-4);
+  const h = Math.pow(inside, 1 / p);
+  return [h, Math.pow(s, p - 1) * h / inside];
+}
+
+// shader 位移链（逐行对应 liquidglass.frag main()）：t → {rawTan, slopeMag, outerSoft, ramp, maxDisp, magG, capped}
+function shaderField(t, bezel, thick, P) {
+  const [h, deriv] = surfaceProfile(t);
+  const rawTan = deriv * (thick / bezel);
+  const maxTan = Math.max(P.refractionMaxTan, 0.1);
+  const outerSoft = THREE.MathUtils.smoothstep(t * bezel, 0, 5); // edgeAA≈2px → smoothstep(0, 2.5·edgeAA=5, distFromEdge)
+  const slopeMag = Math.min(rawTan, maxTan) * outerSoft;
+  const iorG = Math.max(P.ior, 1.0001);
+  const sinI = slopeMag / Math.hypot(slopeMag, 1);
+  const sinT = Math.min(sinI / iorG, 0.999);
+  const tanT = sinT / Math.sqrt(Math.max(1 - sinT * sinT, 1e-4));
+  const edgePull = clamp(P.contentEdgePull, 0, 1);
+  const rampEnd = clamp(P.contentRampEnd, 0.05, 1);
+  const ramp = edgePull + (1 - edgePull) * THREE.MathUtils.smoothstep(t, 0, rampEnd);
+  const maxDisp = Math.min(Math.min(bezel * 0.85, thick * 0.75), 48);
+  const raw = h * thick * ramp * Math.max(slopeMag - tanT, 0);
+  return { rawTan, maxTan, outerSoft, slopeMag, sinT, ramp, maxDisp, magG: Math.min(raw, maxDisp), capped: raw > maxDisp };
+}
+
+// 与 shader main() 相同的分支：任一点的 (t, localBezel, expanding)
+function fieldAt(px, py, hx, hy, radius, bezelWidth, mode = 0) {
+  const outerRadius = Math.min(Math.max(radius, 0), Math.min(hx, hy));
+  const sizeLimitedBezel = Math.min(Math.max(bezelWidth, 1), Math.max(Math.min(hx, hy) - 1, 1));
+  const distFromEdge = -sdRoundedRect(px, py, hx, hy, radius);
+  if (outerRadius < sizeLimitedBezel) {
+    const shaderT = getFieldT(px, py, hx, hy, outerRadius, sizeLimitedBezel);
+    if (mode !== 0) { // mode: 0=shader，1=smooth；自动模式仅在 radius<bezel 时传入 1。
+      const dx = hx - Math.abs(px), dy = hy - Math.abs(py), rr = outerRadius, b = sizeLimitedBezel;
+      const outerX = dx < rr ? rr - Math.sqrt(Math.max(0, dx * (2 * rr - dx))) : 0; // top/bottom outer arc
+      const outerY = dy < rr ? rr - Math.sqrt(Math.max(0, dy * (2 * rr - dy))) : 0; // left/right outer arc
+      const topProgress = clamp((dy - outerX) / b, 0, 1);
+      const sideProgress = clamp((dx - outerY) / b, 0, 1);
+      const hamacher = (topProgress * sideProgress) / Math.max(topProgress + sideProgress - topProgress * sideProgress, 1e-4);
+      const smoother = v => v * v * v * (v * (v * 6 - 15) + 10);
+      const wt = smoother(topProgress), ws = smoother(sideProgress);
+      const p = 2.6;
+      const q = Math.pow(Math.pow(1 - topProgress, p) + Math.pow(1 - sideProgress, p), 1 / p);
+      const superCorner = clamp(1 - q, 0, 1);
+      const smoothT = hamacher * (1 - wt) * (1 - ws)
+        + sideProgress * wt * (1 - ws)
+        + topProgress * ws * (1 - wt)
+        + superCorner * wt * ws;
+      const cornerDist = Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
+      const mix = mode < 0 ? 1 : mode;
+      return { t: clamp(shaderT * (1 - mix) + smoothT * mix, 0, 1), bezel: sizeLimitedBezel, expanding: true };
+    }
+    return { t: shaderT, bezel: sizeLimitedBezel, expanding: true };
+  }
+  return { t: clamp(distFromEdge / sizeLimitedBezel, 0, 1), bezel: sizeLimitedBezel, expanding: false };
+}
+
+function effectiveCornerMode(P, hx, hy) {
+  const outerRadius = Math.min(Math.max(P.radius, 0), Math.min(hx, hy));
+  const sizeLimitedBezel = Math.min(Math.max(P.bezelWidth, 1), Math.max(Math.min(hx, hy) - 1, 1));
+  if (P.cornerField < 0.5) return outerRadius < sizeLimitedBezel ? 1 : 0; // auto: use smooth only for expanding branch
+  return P.cornerField < 1.5 ? 0 : 1; // force shader / force smooth
+}
+
+function cornerModeLabel(P, mode) {
+  if (P.cornerField < 0.5) return mode >= 0.5 ? '自动 → smooth 角区场' : '自动 → 当前 shader';
+  return mode >= 0.5 ? '强制双边平滑混合' : '强制当前 shader expanding-corners';
+}
+
+// 与 shader expandingCornerBezelField 相同：t 场梯度 → 外法线 n2 与 localBezel
+function fieldNormal(px, py, hx, hy, radius, bezelWidth, mode = 0) {
+  const eps = 0.5;
+  const ft = (x, y) => fieldAt(x, y, hx, hy, radius, bezelWidth, mode).t;
+  const gx = (ft(px + eps, py) - ft(px - eps, py)) / (2 * eps);
+  const gy = (ft(px, py + eps) - ft(px, py - eps)) / (2 * eps);
+  const len = Math.hypot(gx, gy);
+  if (len <= 1e-5) return { n2: roundedRectNormal(px, py, hx, hy, radius), localBezel: Math.max(bezelWidth, 1) };
+  return { n2: [-gx / len, -gy / len], localBezel: 1 / len };
+}
+
+/* ============ 3D 基础 ============ */
+const viewport = document.getElementById('viewport');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+viewport.appendChild(renderer.domElement);
+
+function makeScene() {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0f141b);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const d1 = new THREE.DirectionalLight(0xffffff, 1.5); d1.position.set(120, 180, 220); scene.add(d1);
+  const d2 = new THREE.DirectionalLight(0x88aaff, 0.5); d2.position.set(-150, -80, 120); scene.add(d2);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 10000);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  return { scene, camera, controls, group: null, fitted: false };
+}
+const viewA = makeScene(), viewB = makeScene();
+window.__viz = { viewA, viewB }; // 调试句柄
+let active = viewA, activeName = 'A';
+
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+
+
+function lineObj(points, color, dashed = false) {
+  const g = new THREE.BufferGeometry().setFromPoints(points.map(p => Array.isArray(p) ? V(...p) : p));
+  const m = dashed
+    ? new THREE.LineDashedMaterial({ color, dashSize: 3, gapSize: 2.5 })
+    : new THREE.LineBasicMaterial({ color });
+  const l = new THREE.Line(g, m);
+  if (dashed) l.computeLineDistances();
+  return l;
+}
+
+function arrowCone(dir, tipPos, color, len = 7, r = 2.4) {
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(r, len, 12), new THREE.MeshBasicMaterial({ color }));
+  cone.position.copy(tipPos).addScaledVector(dir, -len / 2);
+  cone.quaternion.setFromUnitVectors(V(0, 1, 0), dir.clone().normalize());
+  return cone;
+}
+
+// 单向箭头 a→b
+function arrow(a, b, color) {
+  const g = new THREE.Group();
+  const A = V(...a), B = V(...b);
+  g.add(lineObj([A, B], color));
+  g.add(arrowCone(B.clone().sub(A).normalize(), B, color));
+  return g;
+}
+
+// 双向尺寸线 a↔b（无文字，颜色即标识，见侧栏图例）
+function dimension(a, b, color = 0xfbbf24) {
+  const g = new THREE.Group();
+  const A = V(...a), B = V(...b);
+  const dir = B.clone().sub(A).normalize();
+  g.add(lineObj([A, B], color));
+  g.add(arrowCone(dir.clone().negate(), A, color));
+  g.add(arrowCone(dir, B, color));
+  return g;
+}
+
+
+function planeArc(center, r, hDir, vDir, a0, a1, color, seg = 32) {
+  const pts = [];
+  for (let i = 0; i <= seg; i++) {
+    const a = a0 + (a1 - a0) * i / seg;
+    pts.push(center.clone().addScaledVector(vDir, Math.cos(a) * r).addScaledVector(hDir, Math.sin(a) * r));
+  }
+  return lineObj(pts, color);
+}
+
+function quarterOutline(hx, hy, r, M = 120) {
+  const rr = Math.min(Math.max(r, 0), Math.min(hx, hy));
+  const raw = [[0, hy]];
+  if (rr > 1e-6) {
+    raw.push([hx - rr, hy]);
+    const seg = Math.max(6, Math.round(rr * 0.8));
+    for (let i = 1; i < seg; i++) {
+      const a = (90 - 90 * i / seg) * Math.PI / 180;
+      raw.push([hx - rr + rr * Math.cos(a), hy - rr + rr * Math.sin(a)]);
+    }
+    raw.push([hx, hy - rr]);
+  } else {
+    raw.push([hx, hy]);
+  }
+  raw.push([hx, 0]);
+  const cum = [0]; let total = 0;
+  for (let i = 0; i < raw.length - 1; i++) {
+    total += Math.hypot(raw[i + 1][0] - raw[i][0], raw[i + 1][1] - raw[i][1]);
+    cum.push(total);
+  }
+  const pts = []; let seg = 0;
+  for (let i = 0; i <= M; i++) {
+    const target = total * i / M;
+    while (seg < cum.length - 2 && cum[seg + 1] < target) seg++;
+    const a = raw[seg], b = raw[seg + 1];
+    const f = (target - cum[seg]) / Math.max(cum[seg + 1] - cum[seg], 1e-9);
+    pts.push([a[0] + (b[0] - a[0]) * clamp(f, 0, 1), a[1] + (b[1] - a[1]) * clamp(f, 0, 1)]);
+  }
+  return pts;
+}
+
+/* ============ 视图 A：四分之一玻璃 + 折射光路 ============ */
+let readoutTextA = '';
+function buildViewA(group) {
+  const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+  const hx = P.width / 2, hy = P.height / 2, thick = P.thickness;
+  const mode = effectiveCornerMode(P, hx, hy);
+  const { bezel } = fieldAt(0, 0, hx, hy, P.radius, P.bezelWidth, mode);
+  const skirt = Math.max(6, thick * 0.12);
+  const h0 = surfaceProfile(0)[0];
+  const qloop = quarterOutline(hx, hy, P.radius, 128);
+
+  /* --- 背景平面 z=0 --- */
+  const bg = new THREE.Mesh(new THREE.PlaneGeometry(hx + 180, hy + 180), new THREE.MeshBasicMaterial({ color: 0x1b2735 }));
+  bg.position.set(hx / 2, hy / 2, 0);
+  group.add(bg);
+  const grid = new THREE.GridHelper(Math.max(hx, hy) + 180, 32, 0x334155, 0x223047);
+  grid.rotation.x = Math.PI / 2;
+  grid.position.set(hx / 2, hy / 2, 0.02);
+  group.add(grid);
+
+  /* --- 顶面：规则采样 t 场；外点投影到轮廓，保留完整网格避免圆角锯齿缺口 --- */
+  const NX = 130, NY = 95;
+  const pos = [], col = [], idx = [];
+  const cEdge = new THREE.Color(0xf59e0b), cMid = new THREE.Color(0x38bdf8), cFlat = new THREE.Color(0xe8f6ff);
+  const tmp = new THREE.Color();
+  const lMax = Math.hypot(hx, hy) + bezel * 1.6 + 4;
+  for (let j = 0; j <= NY; j++) {
+    for (let i = 0; i <= NX; i++) {
+      let x = hx * i / NX, y = hy * j / NY;
+      const sd = sdRoundedRect(x, y, hx, hy, P.radius);
+      if (sd > 0) {
+        const [nx, ny] = roundedRectNormal(x, y, hx, hy, P.radius);
+        x -= nx * sd; y -= ny * sd;
+      }
+      const f = fieldAt(x, y, hx, hy, P.radius, P.bezelWidth, mode);
+      pos.push(x, y, surfaceProfile(f.t)[0] * thick);
+      if (f.t >= 1) tmp.copy(cFlat);
+      else if (f.t > 0.5) tmp.copy(cMid).lerp(cFlat, (f.t - 0.5) * 2);
+      else tmp.copy(cEdge).lerp(cMid, f.t * 2);
+      col.push(tmp.r, tmp.g, tmp.b);
+    }
+  }
+  for (let j = 0; j < NY; j++) {
+    for (let i = 0; i < NX; i++) {
+      const a = j * (NX + 1) + i, b = a + 1, c = a + NX + 1, d = c + 1;
+      idx.push(a, b, c, b, d, c);
+    }
+  }
+  const tg = new THREE.BufferGeometry();
+  tg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  tg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  tg.setIndex(idx); tg.computeVertexNormals();
+  group.add(new THREE.Mesh(tg, new THREE.MeshPhysicalMaterial({
+    vertexColors: true, transparent: true, opacity: 0.86, roughness: 0.12, metalness: 0,
+    clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide,
+  })));
+
+  /* --- 两个剖切立面：x=0 与 y=0 --- */
+  const cutMat = new THREE.MeshPhysicalMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.34, roughness: 0.16, metalness: 0, side: THREE.DoubleSide, depthWrite: false });
+  const addCutFace = (axis) => {
+    const N = 90, cp = [], ci = [], line = [];
+    const maxU = axis === 'x' ? hx : hy;
+    for (let i = 0; i <= N; i++) {
+      const u = maxU * i / N;
+      const x = axis === 'x' ? u : 0, y = axis === 'x' ? 0 : u;
+      const z = surfaceProfile(fieldAt(x, y, hx, hy, P.radius, P.bezelWidth, mode).t)[0] * thick;
+      cp.push(x, y, z, x, y, -skirt);
+      line.push([x, y, z + 0.3]);
+    }
+    for (let i = 0; i < N; i++) { const a = i * 2; ci.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    const cg = new THREE.BufferGeometry();
+    cg.setAttribute('position', new THREE.Float32BufferAttribute(cp, 3));
+    cg.setIndex(ci); cg.computeVertexNormals();
+    group.add(new THREE.Mesh(cg, cutMat));
+    group.add(lineObj(line, 0x38bdf8));
+  };
+  addCutFace('x'); addCutFace('y');
+
+  /* --- 侧壁 + 底面 --- */
+  const sgp = [], sgi = [];
+  for (const [x, y] of qloop) sgp.push(x, y, h0 * thick);
+  for (const [x, y] of qloop) sgp.push(x, y, -skirt);
+  const m = qloop.length;
+  for (let i = 0; i < m - 1; i++) sgi.push(i, i + 1, m + i, i + 1, m + i + 1, m + i);
+  const capStart = sgp.length / 3;
+  sgp.push(0, 0, -skirt);
+  for (let i = 0; i < m - 1; i++) sgi.push(capStart, m + i, m + i + 1);
+  const sg = new THREE.BufferGeometry();
+  sg.setAttribute('position', new THREE.Float32BufferAttribute(sgp, 3));
+  sg.setIndex(sgi); sg.computeVertexNormals();
+  group.add(new THREE.Mesh(sg, new THREE.MeshPhysicalMaterial({ color: 0x7cc4e8, transparent: true, opacity: 0.52, roughness: 0.2, metalness: 0, side: THREE.DoubleSide })));
+  group.add(lineObj(qloop.map(p => [p[0], p[1], h0 * thick + 0.4]), 0xe2e8f0));
+
+  /* --- 角区折射光路 --- */
+  const qCount = qloop.length - 1;
+  const foot = qloop[Math.round(P.rayPos * qCount)];
+  const fl = Math.hypot(foot[0], foot[1]) || 1;
+  const fnx = foot[0] / fl, fny = foot[1] / fl; // 沿轮廓点→中心方向二分，避免锐角法线射线跑飞
+  let lo = 0, hi = lMax;
+  for (let it = 0; it < 24; it++) {
+    const mid = (lo + hi) / 2;
+    if (fieldAt(foot[0] - fnx * mid, foot[1] - fny * mid, hx, hy, P.radius, P.bezelWidth, mode).t < P.rayT) lo = mid; else hi = mid;
+  }
+  const dHit = (lo + hi) / 2;
+  const px = foot[0] - fnx * dHit, py = foot[1] - fny * dHit;
+  const fAt = fieldAt(px, py, hx, hy, P.radius, P.bezelWidth, mode);
+  const FN = fieldNormal(px, py, hx, hy, P.radius, P.bezelWidth, mode);
+  const [h, deriv] = surfaceProfile(fAt.t);
+  const pz = h * thick;
+  const distFromEdge = Math.max(-sdRoundedRect(px, py, hx, hy, P.radius), 0);
+  const rawTan = deriv * (thick / FN.localBezel);
+  const maxTan = Math.max(P.refractionMaxTan, 0.1);
+  const outerSoft = THREE.MathUtils.smoothstep(distFromEdge, 0, 5);
+  const slopeMag = Math.min(rawTan, maxTan) * outerSoft;
+  const clamped = rawTan > maxTan + 1e-9;
+  const thetaI = Math.atan(slopeMag);
+  const nLen = Math.hypot(slopeMag, 1);
+  const Nv = V(FN.n2[0] * slopeMag / nLen, FN.n2[1] * slopeMag / nLen, 1 / nLen);
+  const Pv = V(px, py, pz);
+  const eyeTop = Math.max(thick, pz) + 70;
+  group.add(arrow([px, py, eyeTop], [px, py, pz], 0xfde047));
+  group.add(lineObj([Pv.clone().addScaledVector(Nv, 46), Pv.clone().addScaledVector(Nv, -Math.max(42, pz + 28))], 0x94a3b8, true));
+  const iorG = Math.max(P.ior, 1.0001), eta = 1 / iorG, I = V(0, 0, -1);
+  const dotNI = Nv.dot(I);
+  const sinT = clamp(slopeMag / Math.hypot(slopeMag, 1) / iorG, 0, 0.999);
+  const thetaT = Math.asin(sinT);
+  const k = 1 - eta * eta * (1 - dotNI * dotNI);
+  const rf = eta * dotNI + Math.sqrt(Math.max(k, 0));
+  const T = I.clone().multiplyScalar(eta).addScaledVector(Nv, -rf);
+  const hit = Pv.clone().addScaledVector(T, -pz / T.z);
+  group.add(arrow([px, py, pz], [hit.x, hit.y, 0.8], 0x4ade80));
+  group.add(lineObj([[px, py, pz], [px, py, 0.6]], 0x64748b, true));
+  const dot1 = new THREE.Mesh(new THREE.SphereGeometry(2.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0x4ade80 }));
+  dot1.position.set(hit.x, hit.y, 1.0); group.add(dot1);
+  const dot2 = new THREE.Mesh(new THREE.SphereGeometry(2.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0x64748b }));
+  dot2.position.set(px, py, 1.0); group.add(dot2);
+  const exactDelta = Math.hypot(hit.x - px, hit.y - py);
+  if (exactDelta > 0.2) group.add(arrow([px, py, 1.4], [hit.x, hit.y, 1.4], 0xf87171));
+  const edgePull = clamp(P.contentEdgePull, 0, 1), rampEnd = clamp(P.contentRampEnd, 0.05, 1);
+  const ramp = edgePull + (1 - edgePull) * THREE.MathUtils.smoothstep(fAt.t, 0, rampEnd);
+  const tanT = Math.tan(thetaT);
+  const maxDisp = Math.min(Math.min(bezel * 0.85, thick * 0.75), 48);
+  let magG = pz * ramp * Math.max(slopeMag - tanT, 0);
+  const capped = magG > maxDisp; magG = Math.min(magG, maxDisp);
+  const sx = px - FN.n2[0] * magG, sy = py - FN.n2[1] * magG;
+  const dot3 = new THREE.Mesh(new THREE.SphereGeometry(2.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xe879f9 }));
+  dot3.position.set(sx, sy, 1.0); group.add(dot3);
+  if (magG > 0.2) group.add(arrow([px, py, 2.0], [sx, sy, 2.0], 0xe879f9));
+  const arcR = clamp(bezel * 0.35, 12, 24);
+  const hDir = V(FN.n2[0], FN.n2[1], 0).normalize();
+  group.add(planeArc(Pv, arcR, hDir, V(0, 0, 1), 0, thetaI, 0xfde047));
+  group.add(planeArc(Pv, arcR * 0.8, hDir.clone().negate(), V(0, 0, -1), thetaI - thetaT, thetaI, 0x4ade80));
+
+  /* --- 直边参数图表（放在玻璃外的背景上） --- */
+  const chartY0 = hy + 18, chartH = 52, chartZ = 0.7;
+  const yOf = frac => chartY0 + frac * chartH;
+  const dispScale = maxDisp || 1;
+  [[[0, chartY0], [bezel, chartY0]], [[0, yOf(1)], [bezel, yOf(1)]], [[0, chartY0], [0, yOf(1)]], [[bezel, chartY0], [bezel, yOf(1)]]]
+    .forEach(seg => group.add(lineObj(seg.map(([x, y]) => [x, y, chartZ]), 0x475569)));
+  const NS = 96, magPts = [], rampPts = [], slopePts = [], rawPts = [];
+  for (let i = 0; i <= NS; i++) {
+    const tt = i / NS, sf = shaderField(tt, bezel, thick, P), x = tt * bezel;
+    magPts.push([x, yOf(sf.magG / dispScale), chartZ]);
+    rampPts.push([x, yOf(sf.ramp), chartZ]);
+    slopePts.push([x, yOf(Math.min(sf.slopeMag / sf.maxTan, 1)), chartZ]);
+    rawPts.push([x, yOf(Math.min(sf.rawTan / sf.maxTan, 1)), chartZ]);
+  }
+  group.add(lineObj(magPts, 0xe879f9));
+  group.add(lineObj(rampPts, 0xfb923c));
+  group.add(lineObj(slopePts, 0x2dd4bf));
+  group.add(lineObj(rawPts, 0x2dd4bf, true));
+  group.add(lineObj([[P.rayT * bezel, chartY0, chartZ], [P.rayT * bezel, yOf(1), chartZ]], 0xe2e8f0, true));
+
+  /* --- 参数尺寸标注 --- */
+  const rr = Math.min(Math.max(P.radius, 0), Math.min(hx, hy));
+  const bx = Math.max(4, (hx - rr) * 0.5);
+  group.add(dimension([bx, hy, thick + 10], [bx, hy - bezel, thick + 10], 0xfbbf24)); // bezelWidth
+  group.add(dimension([-18, hy * 0.45, 0], [-18, hy * 0.45, thick], 0xc084fc)); // thickness
+
+  readoutTextA =
+    `四分之一玻璃：轮廓位置 = ${(P.rayPos * 100).toFixed(1)}%    t = ${fAt.t.toFixed(2)}    H = ${pz.toFixed(1)} px    p = ${P.profilePower}\n` +
+    `角区模式 = ${cornerModeLabel(P, mode)}    localBezel = ${FN.localBezel.toFixed(2)} px    n2 = (${FN.n2[0].toFixed(2)}, ${FN.n2[1].toFixed(2)})\n` +
+    `tanθi(原始) = ${rawTan.toFixed(3)}${clamped ? `  → 被 refractionMaxTan=${maxTan} 截断` : ''}\n` +
+    `outerSoft = ${outerSoft.toFixed(3)}（轮廓 5px 内抗锯齿衰减）\n` +
+    `tanθi(采用) = ${slopeMag.toFixed(3)}    θi = ${(thetaI * 180 / Math.PI).toFixed(2)}°\n` +
+    `sinθt = sinθi/ior → θt = ${(thetaT * 180 / Math.PI).toFixed(2)}°\n` +
+    `contentRamp = ${ramp.toFixed(3)}\n` +
+    `shader 位移 magG = H·ramp·(tanθi−tanθt) = ${magG.toFixed(1)} px${capped ? `（已按 maxDisp=${maxDisp.toFixed(0)} 截断）` : ''}\n` +
+    `精确几何位移 Δ = ${exactDelta.toFixed(1)} px`;
+
+  return { cx: hx / 2, cy: hy / 2, cz: thick / 2, size: Math.max(hx, hy, thick) * 2.25 };
+}
+
+/* ============ 视图 B：玻璃 3D 形状 ============ */
+// 按弧长均匀重采样的轮廓环（CCW），radius=0 也适用
+function resampledOutline(hx, hy, r, M = 220) {
+  const rr = Math.min(Math.max(r, 0), Math.min(hx, hy));
+  const raw = [];
+  const corner = (cx, cy, a0) => {
+    const seg = Math.min(360, Math.max(24, Math.round(rr * 4)));
+    for (let i = 0; i < seg; i++) {
+      const a = (a0 + 90 * i / seg) * Math.PI / 180;
+      raw.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]);
+    }
+  };
+  corner(hx - rr, hy - rr, 0); corner(-hx + rr, hy - rr, 90);
+  corner(-hx + rr, -hy + rr, 180); corner(hx - rr, -hy + rr, 270);
+  const cum = [0]; let total = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const a = raw[i], b = raw[(i + 1) % raw.length];
+    total += Math.hypot(b[0] - a[0], b[1] - a[1]); cum.push(total);
+  }
+  const out = []; let seg = 0;
+  for (let i = 0; i < M; i++) {
+    const target = total * i / M;
+    while (seg < cum.length - 2 && cum[seg + 1] < target) seg++;
+    const a = raw[seg], b = raw[(seg + 1) % raw.length];
+    const f = (target - cum[seg]) / Math.max(cum[seg + 1] - cum[seg], 1e-9);
+    out.push([a[0] + (b[0] - a[0]) * clamp(f, 0, 1), a[1] + (b[1] - a[1]) * clamp(f, 0, 1)]);
+  }
+  return out;
+}
+
+// SDF 梯度（外法线），有限差分，角尖处自动给出对角方向
+function sdGrad(x, y, hx, hy, r) {
+  const e = 0.35;
+  const gx = sdRoundedRect(x + e, y, hx, hy, r) - sdRoundedRect(x - e, y, hx, hy, r);
+  const gy = sdRoundedRect(x, y + e, hx, hy, r) - sdRoundedRect(x, y - e, hx, hy, r);
+  const l = Math.hypot(gx, gy) || 1;
+  return [gx / l, gy / l];
+}
+
+function buildViewB(group) {
+  const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+  const hx = P.width / 2, hy = P.height / 2;
+  const thick = P.thickness;
+  const mode = effectiveCornerMode(P, hx, hy);
+  const skirt = Math.max(6, thick * 0.12);
+  const { bezel } = fieldAt(0, 0, hx, hy, P.radius, P.bezelWidth, mode);
+
+  /* --- 顶面：轮廓环形网格。外圈就是真实 rounded-rect 轮廓，避免规则网格裁剪造成狗啃边。 --- */
+  const M = 720, K = 80;
+  const loop = resampledOutline(hx, hy, P.radius, M);
+  const h0 = surfaceProfile(0)[0];
+  const pos = [], col = [], idx = [];
+  const cEdge = new THREE.Color(0xf59e0b), cMid = new THREE.Color(0x38bdf8), cFlat = new THREE.Color(0xe8f6ff);
+  const tmp = new THREE.Color();
+  for (let k = 0; k < K; k++) {
+    const u = k / K; // 0=轮廓，1=中心；最后中心单独一个点，避免重复退化顶点
+    for (let i = 0; i < M; i++) {
+      const x = loop[i][0] * (1 - u);
+      const y = loop[i][1] * (1 - u);
+      const f = fieldAt(x, y, hx, hy, P.radius, P.bezelWidth, mode);
+      pos.push(x, y, surfaceProfile(f.t)[0] * thick);
+      if (f.t >= 1) tmp.copy(cFlat);
+      else if (f.t > 0.5) tmp.copy(cMid).lerp(cFlat, (f.t - 0.5) * 2);
+      else tmp.copy(cEdge).lerp(cMid, f.t * 2);
+      col.push(tmp.r, tmp.g, tmp.b);
+    }
+  }
+  const center = pos.length / 3;
+  pos.push(0, 0, surfaceProfile(fieldAt(0, 0, hx, hy, P.radius, P.bezelWidth, mode).t)[0] * thick);
+  tmp.copy(cFlat); col.push(tmp.r, tmp.g, tmp.b);
+  for (let k = 0; k < K - 1; k++) {
+    for (let i = 0; i < M; i++) {
+      const a = k * M + i, b = k * M + (i + 1) % M, c = (k + 1) * M + i, d = (k + 1) * M + (i + 1) % M;
+      idx.push(a, b, c, b, d, c);
+    }
+  }
+  const inner = (K - 1) * M;
+  for (let i = 0; i < M; i++) idx.push(center, inner + i, inner + (i + 1) % M);
+  const tg = new THREE.BufferGeometry();
+  tg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  tg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  tg.setIndex(idx);
+  tg.computeVertexNormals();
+  group.add(new THREE.Mesh(tg, new THREE.MeshPhysicalMaterial({
+    vertexColors: true, transparent: true, opacity: 0.88, roughness: 0.12, metalness: 0,
+    clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide,
+  })));
+
+  /* --- 侧壁 + 底面（与顶面 t=0 环同高，无缝衔接） --- */
+  const m = loop.length;
+  const sp = [], si = [];
+  for (let i = 0; i < m; i++) sp.push(loop[i][0], loop[i][1], h0 * thick);
+  for (let i = 0; i < m; i++) sp.push(loop[i][0], loop[i][1], -skirt);
+  for (let i = 0; i < m; i++) {
+    const a = i, b = (i + 1) % m;
+    si.push(a, b, m + a, b, m + b, m + a);
+  }
+  const capStart = sp.length / 3;
+  sp.push(0, 0, -skirt);
+  for (let i = 0; i < m; i++) si.push(capStart, m + i, m + (i + 1) % m);
+  const sg = new THREE.BufferGeometry();
+  sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+  sg.setIndex(si);
+  sg.computeVertexNormals();
+  group.add(new THREE.Mesh(sg, new THREE.MeshPhysicalMaterial({
+    color: 0x7cc4e8, transparent: true, opacity: 0.55, roughness: 0.2, metalness: 0, side: THREE.DoubleSide,
+  })));
+  // 轮廓线
+  group.add(lineObj([...loop.map(p => [p[0], p[1], h0 * thick + 0.4]), [loop[0][0], loop[0][1], h0 * thick + 0.4]], 0xe2e8f0)); // 轮廓线：白
+
+  /* --- 参数标注 --- */
+  // width / height
+  group.add(dimension([-hx, -hy - 24, -skirt], [hx, -hy - 24, -skirt], 0xfbbf24));      // width 琥珀色
+  group.add(dimension([hx + 24, -hy, -skirt], [hx + 24, hy, -skirt], 0x4ade80));       // height 绿色
+  // radius：右上角画圆弧 + 半径引线
+  const rr = Math.min(Math.max(P.radius, 0), Math.min(hx, hy));
+  if (rr > 2) {
+    const cx = hx - rr, cy = hy - rr, az = thick * 0.5 + 6;
+    const arcPts = [];
+    for (let i = 0; i <= 24; i++) {
+      const a = (90 * i / 24) * Math.PI / 180;
+      arcPts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a), az]);
+    }
+    group.add(lineObj(arcPts, 0xf472b6));
+    const m45 = [cx + rr * Math.SQRT1_2, cy + rr * Math.SQRT1_2, az];
+    group.add(arrow([cx, cy, az], m45, 0xf472b6));
+    const dotC = new THREE.Mesh(new THREE.SphereGeometry(1.8, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf472b6 }));
+    dotC.position.set(cx, cy, az); group.add(dotC);
+  }
+  // bezelWidth：右边缘中点，沿表面过渡带
+  group.add(dimension([hx - bezel, 0, thick + 10], [hx, 0, thick + 10], 0x22d3ee));    // bezelWidth 青色
+  group.add(lineObj([[hx, 0, 0], [hx, 0, thick + 10]], 0x78716c, true));
+  group.add(lineObj([[hx - bezel, 0, thick], [hx - bezel, 0, thick + 10]], 0x78716c, true));
+  // thickness：左侧竖直尺寸线
+  group.add(dimension([-hx - 30, hy * 0.4, 0], [-hx - 30, hy * 0.4, thick], 0xc084fc)); // thickness 紫色
+
+  return { cz: thick / 2, size: Math.max(P.width, P.height, thick * 2, 120) };
+}
+
+/* ============ UI、切换与渲染循环 ============ */
+const controlsBox = document.getElementById('controls');
+for (const [key, o] of Object.entries(PARAMS)) {
+  const div = document.createElement('div');
+  div.className = 'param';
+  div.innerHTML =
+    `<div class="head"><span><span class="name">${key}</span><span class="views">视图 ${o.views}</span></span>` +
+    `<span class="val">${o.v}</span></div>` +
+    `<input type="range" min="${o.min}" max="${o.max}" step="${o.step}" value="${o.v}">` +
+    `<div class="desc">${o.desc}</div>`;
+  const input = div.querySelector('input'), val = div.querySelector('.val');
+  input.addEventListener('input', () => {
+    o.v = parseFloat(input.value);
+    val.textContent = o.v;
+    rebuild();
+  });
+  controlsBox.appendChild(div);
+}
+
+function disposeGroup(g) {
+  g.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) {
+      const ms = Array.isArray(o.material) ? o.material : [o.material];
+      ms.forEach(mm => { if (mm.map) mm.map.dispose(); mm.dispose(); });
+    }
+  });
+}
+
+const readout = document.getElementById('readout');
+function rebuildView(view, builder, fitCamera) {
+  if (view.group) { view.scene.remove(view.group); disposeGroup(view.group); }
+  view.group = new THREE.Group();
+  const fit = builder(view.group);
+  view.scene.add(view.group);
+  if (!view.fitted) { view.fitted = true; fitCamera(view, fit); }
+}
+
+function rebuild() {
+  rebuildView(viewA, buildViewA, (v, f) => {
+    v.controls.target.set(f.cx, f.cy ?? 0, f.cz);
+    v.camera.position.set(f.cx + f.size * 0.45, (f.cy ?? 0) - f.size * 0.95, f.cz + f.size * 0.62);
+  });
+  rebuildView(viewB, buildViewB, (v, f) => {
+    v.controls.target.set(0, 0, f.cz);
+    v.camera.position.set(f.size * 0.8, -f.size * 1.0, f.size * 0.75);
+  });
+  readout.textContent = readoutTextA;
+}
+
+function switchTab(name) {
+  activeName = name;
+  active = name === 'A' ? viewA : viewB;
+  document.getElementById('tabA').classList.toggle('active', name === 'A');
+  document.getElementById('tabB').classList.toggle('active', name === 'B');
+  readout.style.display = name === 'A' ? 'block' : 'none';
+  document.getElementById('legendA').style.display = name === 'A' ? 'block' : 'none';
+  document.getElementById('legendB').style.display = name === 'B' ? 'block' : 'none';
+}
+document.getElementById('tabA').addEventListener('click', () => switchTab('A'));
+document.getElementById('tabB').addEventListener('click', () => switchTab('B'));
+
+function onResize() {
+  const w = viewport.clientWidth, h = viewport.clientHeight;
+  renderer.setSize(w, h);
+  for (const v of [viewA, viewB]) { v.camera.aspect = w / h; v.camera.updateProjectionMatrix(); }
+}
+window.addEventListener('resize', onResize);
+onResize();
+switchTab('A');
+rebuild();
+renderer.setAnimationLoop(() => {
+  active.controls.update();
+  renderer.render(active.scene, active.camera);
+});
+</script>
+</body>
+</html>
