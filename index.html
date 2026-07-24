@@ -839,6 +839,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
       map: { value: tex },
       halfSize: { value: new THREE.Vector2(hx, hy) },
       imagePlaneSize: { value: textureState.imagePlaneSize.clone() },
+      glassOffset: { value: textureState.glassOffset.clone() },
       radius: { value: P.radius },
       bezelWidth: { value: P.bezelWidth },
       thickness: { value: P.thickness },
