@@ -235,6 +235,7 @@ const PARAMS = {
   blurAmount:       { v: 0.02,min: 0,   max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '归一化模糊量（DConfig blurAmount，0–1）。0 关闭模糊贡献，默认 0.02 极轻微模糊。' },
   blurMax:          { v: 60,  min: 0,   max: 128, step: 1,    views: 'B',   group: 'effect', desc: '最大模糊强度像素（DConfig blurStrength，0–128）。0 完全关闭模糊。' },
   blurMultiplier:   { v: 0,   min: 0,   max: 4,   step: 0.01, views: 'B',   group: 'effect', desc: '模糊半径扩展倍率（DConfig blurMultiplier，0–4）。0 用默认质量，值越大半径越大但质量降低。' },
+  innerShadow:      { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '玻璃内边缘阴影强度（liquidglass.frag innerShadow，0–1）。0 无内阴影，默认 0 关闭。' },
 };
 const STORAGE_STATE_KEY = 'liquidGlassViz.state.v2';
 const STORAGE_WALLPAPER_KEY = 'liquidGlassViz.wallpaper.v1';
@@ -838,7 +839,6 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
       map: { value: tex },
       halfSize: { value: new THREE.Vector2(hx, hy) },
       imagePlaneSize: { value: textureState.imagePlaneSize.clone() },
-      glassOffset: { value: textureState.glassOffset.clone() },
       radius: { value: P.radius },
       bezelWidth: { value: P.bezelWidth },
       thickness: { value: P.thickness },
@@ -850,6 +850,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
       cornerMode: { value: mode },
       specular: { value: P.specular },
       tint: { value: P.tint },
+      innerShadow: { value: P.innerShadow },
       lightDirection: { value: new THREE.Vector2(0.5, -0.7) },
     },
     vertexShader: `
@@ -863,7 +864,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
       precision highp float;
       uniform sampler2D map;
       uniform vec2 halfSize, imagePlaneSize, glassOffset, lightDirection;
-      uniform float radius, bezelWidth, thickness, ior, refractionMaxTan, contentEdgePull, contentRampEnd, profilePower, cornerMode, specular, tint;
+      uniform float radius, bezelWidth, thickness, ior, refractionMaxTan, contentEdgePull, contentRampEnd, profilePower, cornerMode, specular, tint, innerShadow;
       varying vec2 vLocal;
       float sdRound(vec2 p, vec2 b, float r) {
         vec2 q = abs(p) - (b - vec2(r));
@@ -935,7 +936,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float insideY = step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
         float insideImage = insideX * insideY;
         // 背景已由 buildProcessedTexture() 预渲染模糊+颜色调节，这里只做折射位移采样
-        vec3 color = texture2D(map, clamp(sampleUv, vec2(0.001), vec2(0.999))).rgb;
+        vec3 color = pow(texture2D(map, clamp(sampleUv, vec2(0.001), vec2(0.999))).rgb, vec3(2.2)); // sRGB→linear，与 backdrop MeshBasicMaterial 一致
         // 镜面高光（与 liquidglass.frag specular 分支一致）
         if (specular > 1e-4) {
           float rr = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
@@ -951,7 +952,13 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
           float specHighlight = fresnel * pow(rimDot * rimFalloff, 1.35);
           color += vec3(specHighlight * clamp(specular, 0.0, 1.0));
           float innerRim = smoothstep(0.0, 2.0, distFromEdge) * (1.0 - smoothstep(2.0, 5.0, distFromEdge));
-          color += vec3(innerRim * 0.12 * clamp(specular, 0.0, 1.0));
+        // 内边缘阴影（与 liquidglass.frag innerShadow 一致）
+        if (innerShadow > 1e-4) {
+          float rr2 = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
+          float distFromEdge2 = -sdRound(vLocal, halfSize, rr2);
+          float bezel2 = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
+          float shadow = 1.0 - smoothstep(0.0, bezel2 * 0.6, distFromEdge2);
+          color *= mix(1.0, 0.75, shadow * clamp(innerShadow, 0.0, 1.0));
         }
         // 白色染色（与 liquidglass.frag tint 一致）
         if (tint > 1e-4) color = mix(color, vec3(1.0), clamp(tint, 0.0, 1.0));
@@ -1283,17 +1290,44 @@ for (const [key, o] of Object.entries(PARAMS)) {
   (o.group === 'effect' ? effectBox : controlsBox).appendChild(div);
 }
 
+// 上传图片：缩放到实际显示所需分辨率 = containImageSize × devicePixelRatio，不浪费
+const VIZ_DPR = Math.min(devicePixelRatio || 1, 2);
+const VIZ_MAX_W = 640, VIZ_MAX_H = 420;
+const VIZ_TEX_MAX = Math.round(Math.max(VIZ_MAX_W, VIZ_MAX_H) * VIZ_DPR);
+function processAndLoadImage(file) {
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    const maxDim = VIZ_TEX_MAX;
+    const sc = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(2, Math.round(img.naturalWidth * sc));
+    const h = Math.max(2, Math.round(img.naturalHeight * sc));
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d');
+    cx.drawImage(img, 0, 0, w, h);
+    let dataUrl = null;
+    try { dataUrl = cv.toDataURL('image/jpeg', 0.85); } catch (e) { console.warn('toDataURL failed', e); }
+    URL.revokeObjectURL(url);
+    if (dataUrl) {
+      try { localStorage.setItem(STORAGE_WALLPAPER_KEY, dataUrl); } catch (err) { console.warn('Wallpaper too large for localStorage, skipping persistence:', err); }
+    }
+    new THREE.TextureLoader().load(dataUrl || url, tex => {
+      setImageTexture(tex, true);
+      textureState.clearGlass = true;
+      document.getElementById('clearGlass').checked = true;
+      syncVizTextureState();
+      rebuild();
+      saveAppState();
+    });
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); console.warn('Failed to load image'); };
+  img.src = url;
+}
 document.getElementById('textureUpload').addEventListener('change', ev => {
   const file = ev.target.files?.[0];
   if (!file || !file.type.startsWith('image/')) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const dataUrl = String(reader.result || '');
-    if (!dataUrl) return;
-    try { localStorage.setItem(STORAGE_WALLPAPER_KEY, dataUrl); } catch (err) { console.warn('Failed to save wallpaper:', err); }
-    new THREE.TextureLoader().load(dataUrl, tex => { setImageTexture(tex, true); textureState.clearGlass = true; document.getElementById('clearGlass').checked = true; syncVizTextureState(); rebuild(); saveAppState(); });
-  };
-  reader.readAsDataURL(file);
+  processAndLoadImage(file);
 });
 
 document.getElementById('clearGlass').checked = textureState.clearGlass;
