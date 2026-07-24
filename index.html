@@ -49,6 +49,15 @@
   .upload-desc { margin-top: 8px; font-size: 12px; color: #94a3b8; line-height: 1.5; }
   .toggle-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 12px; color: #cbd5e1; line-height: 1.4; }
   .toggle-row input { width: auto !important; accent-color: #2563eb; }
+  .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .mini-button { border: 1px solid #334155; background: #223047; color: #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 12px; cursor: pointer; }
+  .mini-button:hover { background: #2b3b57; color: #fff; }
+  #angleHud {
+    position: absolute; right: 12px; bottom: 12px; z-index: 10;
+    padding: 8px 10px; border: 1px solid #33415580; border-radius: 8px;
+    background: #1a2332d9; color: #cbd5e1; font-family: "SF Mono", Consolas, monospace;
+    font-size: 12px; line-height: 1.5; white-space: pre; display: none;
+  }
 </style>
 </head>
 <body>
@@ -59,6 +68,7 @@
       <button id="tabB">② 玻璃 3D 形状</button>
     </div>
     <div id="readout"></div>
+    <div id="angleHud"></div>
   </div>
   <div id="sidebar">
     <h1>Liquid Glass 参数</h1>
@@ -95,6 +105,7 @@
       <input id="textureUpload" type="file" accept="image/*">
       <div class="upload-desc">只作用于视图 B；上传后玻璃下方图片会按折射参数产生位移。</div>
       <label class="toggle-row"><input id="clearGlass" type="checkbox"> 透明玻璃材质（无色，更接近 Treeland 实际效果）</label>
+      <div class="button-row"><button id="resetParams" class="mini-button" type="button">重置参数</button><button id="clearWallpaper" class="mini-button" type="button">清空背景图</button></div>
     </div>
     <div id="controls"></div>
     <div class="note">specular / tint / brightness / contrast / saturation / blur 仅影响着色，不改变几何与折射光路，故不在本工具中展示。<br><br>视图①为玻璃<b>右边缘的垂直剖面</b>（x = 距轮廓距离，z = 厚度方向）；视图②为完整圆角矩形玻璃体。</div>
@@ -142,18 +153,22 @@ const textureState = {
 function syncVizTextureState() {
   if (!window.__viz) return;
   window.__viz.textureLoaded = textureState.textureLoaded;
-  window.__viz.dragEnabled = textureState.dragEnabled;
   window.__viz.imagePlaneSize = { x: textureState.imagePlaneSize.x, y: textureState.imagePlaneSize.y };
   window.__viz.glassOffset = { x: textureState.glassOffset.x, y: textureState.glassOffset.y };
   window.__viz.clearGlass = textureState.clearGlass;
+  window.__viz.dragEnabled = textureState.dragEnabled;
+  window.__viz.debugRefractionAt = debugRefractionAt;
 }
 
-function setImageTexture(texture, loaded) {
+const STORAGE_STATE_KEY = 'liquidGlassViz.state.v2';
+const STORAGE_WALLPAPER_KEY = 'liquidGlassViz.wallpaper.v1';
+
+function setImageTexture(texture, loaded, resetOffset = true) {
   if (textureState.textureLoaded && textureState.imageTexture) textureState.imageTexture.dispose();
-  textureState.imageTexture = configureImageTexture(texture);
+  textureState.imageTexture = loaded ? configureImageTexture(texture) : null;
   textureState.textureLoaded = loaded;
   textureState.dragEnabled = loaded;
-  textureState.glassOffset.set(0, 0);
+  if (resetOffset) textureState.glassOffset.set(0, 0);
   textureState.imagePlaneSize.copy(loaded ? containImageSize(texture.image) : new THREE.Vector2(0, 0));
   syncVizTextureState();
   viewB.fitted = false;
@@ -176,6 +191,83 @@ const PARAMS = {
   rayPos:           { v: 0.25,min: 0,   max: 1,   step: 0.005,views: 'A',   desc: '光线沿四分之一轮廓的位置：0=顶边中点，1=右边中点，中间经过圆角。' },
   rayT:             { v: 0.5, min: 0.02,max: 0.98,step: 0.01, views: 'A',   desc: '光线命中点位置 t：0 = 轮廓边缘，1 = 平坦区起点。移动它观察角区/直边的斜率与折射。' },
 };
+
+const PARAM_DEFAULTS = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+
+function saveAppState() {
+  const params = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+  localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify({
+    params,
+    clearGlass: textureState.clearGlass,
+    glassOffset: { x: textureState.glassOffset.x, y: textureState.glassOffset.y },
+  }));
+}
+
+function loadSavedState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_STATE_KEY) || '{}');
+    if (saved.params && typeof saved.params === 'object') {
+      for (const [key, value] of Object.entries(saved.params)) {
+        const p = PARAMS[key];
+        if (!p || !Number.isFinite(value)) continue;
+        p.v = Math.min(Math.max(value, p.min), p.max);
+      }
+    }
+    textureState.clearGlass = !!saved.clearGlass;
+    if (saved.glassOffset && Number.isFinite(saved.glassOffset.x) && Number.isFinite(saved.glassOffset.y)) {
+      textureState.glassOffset.set(saved.glassOffset.x, saved.glassOffset.y);
+    }
+  } catch (err) {
+    console.warn('Failed to restore saved visualizer state:', err);
+  }
+}
+
+function syncParamControls() {
+  for (const [key, o] of Object.entries(PARAMS)) {
+    const row = [...document.querySelectorAll('.param')].find(e => e.querySelector('.name')?.textContent === key);
+    if (!row) continue;
+    const input = row.querySelector('input');
+    const val = row.querySelector('.val');
+    input.value = o.v;
+    val.textContent = o.v;
+  }
+}
+
+function resetParams() {
+  for (const [key, value] of Object.entries(PARAM_DEFAULTS)) PARAMS[key].v = value;
+  textureState.clearGlass = false;
+  document.getElementById('clearGlass').checked = false;
+  syncParamControls();
+  saveAppState();
+  rebuild();
+}
+
+function clearWallpaper() {
+  localStorage.removeItem(STORAGE_WALLPAPER_KEY);
+  if (textureState.textureLoaded && textureState.imageTexture) textureState.imageTexture.dispose();
+  textureState.imageTexture = null;
+  textureState.textureLoaded = false;
+  textureState.dragEnabled = false;
+  textureState.dragging = false;
+  textureState.glassOffset.set(0, 0);
+  textureState.imagePlaneSize.set(0, 0);
+  document.getElementById('textureUpload').value = '';
+  syncVizTextureState();
+  viewB.fitted = false;
+  saveAppState();
+  rebuild();
+}
+
+function restoreSavedWallpaper() {
+  const dataUrl = localStorage.getItem(STORAGE_WALLPAPER_KEY);
+  if (!dataUrl) return;
+  new THREE.TextureLoader().load(dataUrl, tex => setImageTexture(tex, true, false), undefined, err => {
+    console.warn('Failed to restore saved wallpaper:', err);
+    localStorage.removeItem(STORAGE_WALLPAPER_KEY);
+  });
+}
+
+loadSavedState();
 
 /* ============ 数学：逐行移植自 liquidglass.frag ============ */
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
@@ -240,6 +332,17 @@ function shaderField(t, bezel, thick, P) {
   return { rawTan, maxTan, outerSoft, slopeMag, sinT, ramp, maxDisp, magG: Math.min(raw, maxDisp), capped: raw > maxDisp };
 }
 
+function smoother01(v) {
+  v = clamp(v, 0, 1);
+  return v * v * v * (v * (v * 6 - 15) + 10);
+}
+
+function smoothCornerT(topProgress, sideProgress) {
+  // radius < bezel 时，角区应由两个方向的 bezel 进度共同决定。
+  // sqrt(smoothX*smoothY) 保持边界 t=0、内角 t=1，并让 radius=0 也有完整 bezel 折射带。
+  return Math.sqrt(smoother01(topProgress) * smoother01(sideProgress));
+}
+
 // 与 shader main() 相同的分支：任一点的 (t, localBezel, expanding)
 function fieldAt(px, py, hx, hy, radius, bezelWidth, mode = 0) {
   const outerRadius = Math.min(Math.max(radius, 0), Math.min(hx, hy));
@@ -253,17 +356,7 @@ function fieldAt(px, py, hx, hy, radius, bezelWidth, mode = 0) {
       const outerY = dy < rr ? rr - Math.sqrt(Math.max(0, dy * (2 * rr - dy))) : 0; // left/right outer arc
       const topProgress = clamp((dy - outerX) / b, 0, 1);
       const sideProgress = clamp((dx - outerY) / b, 0, 1);
-      const hamacher = (topProgress * sideProgress) / Math.max(topProgress + sideProgress - topProgress * sideProgress, 1e-4);
-      const smoother = v => v * v * v * (v * (v * 6 - 15) + 10);
-      const wt = smoother(topProgress), ws = smoother(sideProgress);
-      const p = 2.6;
-      const q = Math.pow(Math.pow(1 - topProgress, p) + Math.pow(1 - sideProgress, p), 1 / p);
-      const superCorner = clamp(1 - q, 0, 1);
-      const smoothT = hamacher * (1 - wt) * (1 - ws)
-        + sideProgress * wt * (1 - ws)
-        + topProgress * ws * (1 - wt)
-        + superCorner * wt * ws;
-      const cornerDist = Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
+      const smoothT = smoothCornerT(topProgress, sideProgress);
       const mix = mode < 0 ? 1 : mode;
       return { t: clamp(shaderT * (1 - mix) + smoothT * mix, 0, 1), bezel: sizeLimitedBezel, expanding: true };
     }
@@ -295,6 +388,26 @@ function fieldNormal(px, py, hx, hy, radius, bezelWidth, mode = 0) {
   return { n2: [-gx / len, -gy / len], localBezel: 1 / len };
 }
 
+function debugRefractionAt(px, py) {
+  const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+  const hx = P.width / 2, hy = P.height / 2;
+  const mode = effectiveCornerMode(P, hx, hy);
+  const f = fieldAt(px, py, hx, hy, P.radius, P.bezelWidth, mode);
+  const n = fieldNormal(px, py, hx, hy, P.radius, P.bezelWidth, mode).n2;
+  const [h, deriv] = surfaceProfile(f.t, P.profilePower);
+  const rawTan = deriv * (P.thickness / Math.max(f.bezel, 1));
+  const slopeMag = Math.min(rawTan, Math.max(P.refractionMaxTan, 0.1));
+  const sinI = slopeMag / Math.hypot(slopeMag, 1);
+  const sinT = Math.min(sinI / Math.max(P.ior, 1.0001), 0.999);
+  const tanT = sinT / Math.sqrt(Math.max(1 - sinT * sinT, 1e-4));
+  const rampEnd = Math.max(P.contentRampEnd, 1e-4);
+  const ramp = clamp(P.contentEdgePull, 0, 1) + (1 - clamp(P.contentEdgePull, 0, 1)) * THREE.MathUtils.smoothstep(f.t, 0, rampEnd);
+  const maxDisp = Math.min(Math.min(f.bezel * 0.85, P.thickness * 0.75), 48);
+  const raw = P.thickness * h * ramp * Math.max(slopeMag - tanT, 0);
+  const magG = Math.min(raw, maxDisp);
+  return { t: f.t, bezel: f.bezel, mode, n2: n, magG, sampleOffset: [-n[0] * magG, -n[1] * magG] };
+}
+
 /* ============ 3D 基础 ============ */
 const viewport = document.getElementById('viewport');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -313,7 +426,7 @@ function makeScene() {
   return { scene, camera, controls, group: null, fitted: false };
 }
 const viewA = makeScene(), viewB = makeScene();
-window.__viz = { viewA, viewB, textureLoaded: false }; // 调试句柄
+window.__viz = { viewA, viewB, textureLoaded: false, debugRefractionAt }; // 调试句柄
 let active = viewA, activeName = 'A';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -683,6 +796,9 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
       float smoother(float v) {
         return v * v * v * (v * (v * 6.0 - 15.0) + 10.0);
       }
+      float smoothCornerT(float topProgress, float sideProgress) {
+        return sqrt(smoother(topProgress) * smoother(sideProgress));
+      }
       float fieldT(vec2 p) {
         float rr = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
         float b = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
@@ -694,16 +810,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
           float dy = halfSize.y - abs(p.y);
           float topProgress = clamp((dy - arcOuter(dx, rr)) / b, 0.0, 1.0);
           float sideProgress = clamp((dx - arcOuter(dy, rr)) / b, 0.0, 1.0);
-          float hamacher = topProgress * sideProgress / max(topProgress + sideProgress - topProgress * sideProgress, 1e-4);
-          float wt = smoother(topProgress);
-          float ws = smoother(sideProgress);
-          float q = pow(pow(1.0 - topProgress, 2.6) + pow(1.0 - sideProgress, 2.6), 1.0 / 2.6);
-          float superCorner = clamp(1.0 - q, 0.0, 1.0);
-          float smoothT = hamacher * (1.0 - wt) * (1.0 - ws)
-            + sideProgress * wt * (1.0 - ws)
-            + topProgress * ws * (1.0 - wt)
-            + superCorner * wt * ws;
-          return smoothT;
+          return smoothCornerT(topProgress, sideProgress);
         }
         return clamp(dist / b, 0.0, 1.0);
       }
@@ -967,7 +1074,7 @@ function buildViewB(group) {
     group.add(glassGroup);
     syncVizTextureState();
   }
-  return { cz: thick / 2, size: previewMode ? Math.max(textureState.imagePlaneSize.x, textureState.imagePlaneSize.y, P.width, P.height, 120) : Math.max(P.width, P.height, thick * 2, 120), force: previewMode };
+  return { cz: thick / 2, size: previewMode ? Math.max(textureState.imagePlaneSize.x, textureState.imagePlaneSize.y, P.width, P.height, 120) : Math.max(P.width, P.height, thick * 2, 120), force: false };
 }
 
 /* ============ UI、切换与渲染循环 ============ */
@@ -985,6 +1092,7 @@ for (const [key, o] of Object.entries(PARAMS)) {
     o.v = parseFloat(input.value);
     val.textContent = o.v;
     rebuild();
+    saveAppState();
   });
   controlsBox.appendChild(div);
 }
@@ -992,18 +1100,25 @@ for (const [key, o] of Object.entries(PARAMS)) {
 document.getElementById('textureUpload').addEventListener('change', ev => {
   const file = ev.target.files?.[0];
   if (!file || !file.type.startsWith('image/')) return;
-  const url = URL.createObjectURL(file);
-  new THREE.TextureLoader().load(url, tex => {
-    URL.revokeObjectURL(url);
-    setImageTexture(tex, true);
-  });
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = String(reader.result || '');
+    if (!dataUrl) return;
+    try { localStorage.setItem(STORAGE_WALLPAPER_KEY, dataUrl); } catch (err) { console.warn('Failed to save wallpaper:', err); }
+    new THREE.TextureLoader().load(dataUrl, tex => { setImageTexture(tex, true); saveAppState(); });
+  };
+  reader.readAsDataURL(file);
 });
 
+document.getElementById('clearGlass').checked = textureState.clearGlass;
 document.getElementById('clearGlass').addEventListener('change', ev => {
   textureState.clearGlass = ev.target.checked;
   syncVizTextureState();
   rebuild();
+  saveAppState();
 });
+document.getElementById('resetParams').addEventListener('click', resetParams);
+document.getElementById('clearWallpaper').addEventListener('click', clearWallpaper);
 
 function disposeGroup(g) {
   g.traverse(o => {
@@ -1016,6 +1131,38 @@ function disposeGroup(g) {
 }
 
 const readout = document.getElementById('readout');
+const angleHud = document.getElementById('angleHud');
+
+function viewBFitSize() {
+  const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+  return textureState.textureLoaded
+    ? Math.max(textureState.imagePlaneSize.x, textureState.imagePlaneSize.y, P.width, P.height, 120)
+    : Math.max(P.width, P.height, P.thickness * 2, 120);
+}
+
+function resetViewBFront() {
+  const size = viewBFitSize();
+  viewB.controls.target.set(0, 0, 0);
+  viewB.camera.position.set(0, 0, size * 1.35);
+  viewB.camera.up.set(0, 1, 0);
+  viewB.controls.update();
+  viewB.fitted = true;
+  updateAngleHud();
+}
+
+function updateAngleHud() {
+  if (activeName !== 'B') {
+    angleHud.style.display = 'none';
+    return;
+  }
+  const offset = viewB.camera.position.clone().sub(viewB.controls.target);
+  const yaw = Math.atan2(offset.x, offset.z) * 180 / Math.PI;
+  const pitch = Math.atan2(offset.y, Math.hypot(offset.x, offset.z)) * 180 / Math.PI;
+  angleHud.style.display = 'block';
+  angleHud.textContent = `旋转角度\n水平 ${yaw.toFixed(1)}°\n俯仰 ${pitch.toFixed(1)}°\n双击重置正面`;
+}
+window.__viz.resetViewBFront = resetViewBFront;
+
 function rebuildView(view, builder, fitCamera) {
   if (view.group) { view.scene.remove(view.group); disposeGroup(view.group); }
   view.group = new THREE.Group();
@@ -1031,7 +1178,7 @@ function rebuild() {
   });
   rebuildView(viewB, buildViewB, (v, f) => {
     if (textureState.textureLoaded) {
-      v.controls.enabled = false;
+      v.controls.enabled = true;
       v.controls.target.set(0, 0, 0);
       v.camera.position.set(0, 0, f.size * 1.35);
       v.camera.up.set(0, 1, 0);
@@ -1066,24 +1213,50 @@ function pointerToDragPlane(ev) {
   const out = new THREE.Vector3();
   return dragRaycaster.ray.intersectPlane(dragPlane, out) ? out : null;
 }
+function pointHitsGlass(p) {
+  if (!textureState.textureLoaded) return false;
+  const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+  const x = p.x - textureState.glassOffset.x;
+  const y = p.y - textureState.glassOffset.y;
+  return sdRoundedRect(x, y, P.width / 2, P.height / 2, P.radius) <= 0;
+}
+window.__viz.pointHitsGlass = pointHitsGlass;
+
 renderer.domElement.addEventListener('pointerdown', ev => {
   if (activeName !== 'B' || !textureState.dragEnabled) return;
   const p = pointerToDragPlane(ev);
-  if (!p) return;
+  if (!p || !pointHitsGlass(p)) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
   textureState.dragging = true;
   textureState.dragStartPoint.copy(p);
   textureState.dragStartOffset.copy(textureState.glassOffset);
-});
+}, true);
 renderer.domElement.addEventListener('pointermove', ev => {
   if (!textureState.dragging) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
   const p = pointerToDragPlane(ev);
   if (!p) return;
   textureState.glassOffset.copy(textureState.dragStartOffset).add(new THREE.Vector2(p.x - textureState.dragStartPoint.x, p.y - textureState.dragStartPoint.y));
   syncVizTextureState();
   rebuild();
-});
+}, true);
 renderer.domElement.addEventListener('pointerup', ev => {
+  if (textureState.dragging) {
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    textureState.dragging = false;
+    saveAppState();
+  }
+}, true);
+renderer.domElement.addEventListener('pointercancel', () => {
   textureState.dragging = false;
+}, true);
+renderer.domElement.addEventListener('dblclick', ev => {
+  if (activeName !== 'B') return;
+  ev.preventDefault();
+  resetViewBFront();
 });
 
 function onResize() {
@@ -1095,8 +1268,10 @@ window.addEventListener('resize', onResize);
 onResize();
 switchTab('A');
 rebuild();
+restoreSavedWallpaper();
 renderer.setAnimationLoop(() => {
   active.controls.update();
+  updateAngleHud();
   renderer.render(active.scene, active.camera);
 });
 </script>
