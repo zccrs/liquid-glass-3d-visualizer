@@ -1291,7 +1291,7 @@ for (const [key, o] of Object.entries(PARAMS)) {
 }
 
 // 上传图片：缩放到实际显示所需分辨率 = containImageSize × devicePixelRatio，不浪费
-const VIZ_DPR = Math.min(devicePixelRatio || 1, 2);
+const VIZ_DPR = devicePixelRatio || 1;
 const VIZ_MAX_W = 640, VIZ_MAX_H = 420;
 const VIZ_TEX_MAX = Math.round(Math.max(VIZ_MAX_W, VIZ_MAX_H) * VIZ_DPR);
 function processAndLoadImage(file) {
