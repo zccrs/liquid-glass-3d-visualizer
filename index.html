@@ -1114,7 +1114,7 @@ function buildViewB(group) {
       new THREE.PlaneGeometry(textureState.imagePlaneSize.x, textureState.imagePlaneSize.y),
       new THREE.MeshBasicMaterial({ map: textureState.imageTexture, side: THREE.DoubleSide })
     );
-    backdrop.position.z = -skirt - 4;
+    backdrop.position.z = -0.6 - 0.5; // 紧贴折射层底部（skirt=0 时无侧壁底面）
     backdrop.renderOrder = -1;
     group.add(backdrop);
     viewB.imageBackdrop = backdrop;
