@@ -22,30 +22,60 @@
     font-family: "SF Mono", Consolas, monospace; font-size: 12.5px; line-height: 1.75; white-space: pre;
     display: none;
   }
-  #sidebar {
+  /* ---- 左侧信息边栏 ---- */
+  #infoBar {
+    width: 300px; flex-shrink: 0; overflow-y: auto; padding: 14px;
+    background: #131922; border-right: 1px solid #2a3546;
+    transition: width .18s ease, padding .18s ease, opacity .18s ease;
+  }
+  #infoBar.collapsed { width: 0; padding: 0; opacity: 0; overflow: hidden; border-right: none; }
+  /* ---- 右侧参数边栏 ---- */
+  #paramBar {
     width: 340px; flex-shrink: 0; overflow-y: auto; padding: 16px;
     background: #151c27; border-left: 1px solid #2a3546;
+    transition: width .18s ease, padding .18s ease, opacity .18s ease;
   }
-  #sidebar h1 { font-size: 16px; margin-bottom: 4px; color: #f1f5f9; }
-  #sidebar .sub { font-size: 12px; color: #7d8da3; margin-bottom: 14px; line-height: 1.5; }
-  .param { margin-bottom: 12px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; }
+  #paramBar.collapsed { width: 0; padding: 0; opacity: 0; overflow: hidden; border-left: none; }
+  .bar-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .bar-head h1 { font-size: 16px; color: #f1f5f9; }
+  .collapse-btn {
+    border: 1px solid #334155; background: #1a2332; color: #9fb0c5; border-radius: 6px;
+    width: 26px; height: 26px; cursor: pointer; font-size: 13px; line-height: 1; display: flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .collapse-btn:hover { background: #2b3b57; color: #fff; }
+  /* 折叠后浮出的展开按钮 */
+  .reopen-btn {
+    position: absolute; top: 12px; z-index: 11; border: 1px solid #33415580;
+    background: #1a2332cc; color: #9fb0c5; border-radius: 8px; padding: 6px 10px;
+    cursor: pointer; font-size: 13px; backdrop-filter: blur(6px); display: none;
+  }
+  .reopen-btn:hover { background: #2b3b57; color: #fff; }
+  #reopenInfo { left: 12px; top: 56px; }
+  #reopenParam { right: 12px; top: 12px; }
+  .sub { font-size: 12px; color: #7d8da3; margin-bottom: 14px; line-height: 1.5; }
+  .param { margin-bottom: 10px; padding: 9px 11px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; }
   .param .head { display: flex; justify-content: space-between; align-items: baseline; }
   .param .name { font-family: Consolas, monospace; font-size: 13.5px; color: #7dd3fc; font-weight: 600; }
   .param .views { font-size: 10px; color: #64748b; margin-left: 6px; font-family: inherit; }
   .param .val { font-family: Consolas, monospace; font-size: 13px; color: #fbbf24; }
-  .param input[type=range] { width: 100%; margin: 8px 0 6px; accent-color: #2563eb; }
-  .param .desc { font-size: 12px; color: #94a3b8; line-height: 1.55; }
+  .param input[type=range] { width: 100%; margin: 7px 0 5px; accent-color: #2563eb; }
+  .param .desc { font-size: 12px; color: #94a3b8; line-height: 1.5; }
+  .param.toggle-param { display: flex; align-items: center; gap: 10px; }
+  .param.toggle-param .head { flex: 1; }
+  .param.toggle-param input[type=range] { margin: 0; flex: 1; }
   .note { font-size: 11.5px; color: #64748b; line-height: 1.6; margin-top: 14px; padding-top: 12px; border-top: 1px dashed #2a3546; }
-  .legend { margin: 0 0 16px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; font-size: 12px; }
+  .legend { margin: 0 0 14px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; font-size: 12px; }
   .legend h2 { font-size: 13px; color: #f1f5f9; margin-bottom: 8px; }
   .legend .item { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; color: #b6c2d2; line-height: 1.4; }
   .legend .sw { width: 22px; height: 4px; border-radius: 2px; flex-shrink: 0; }
   .legend .sw.dot { width: 10px; height: 10px; border-radius: 50%; margin: 0 6px; }
   .legend .sw.dash { height: 2px; background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px); }
   .legend .sw.grad { background: linear-gradient(90deg, #f59e0b, #38bdf8, #e8f6ff); }
-  .upload-panel { margin: 0 0 16px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; }
+  .section-title { font-size: 12px; color: #7d8da3; text-transform: uppercase; letter-spacing: .5px; margin: 14px 0 8px; }
+  .upload-panel { margin: 0 0 14px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; }
   .upload-title { font-size: 13px; color: #f1f5f9; margin-bottom: 8px; font-weight: 600; }
-  .upload-panel input { width: 100%; color: #b6c2d2; font-size: 12px; }
+  .upload-panel input[type=file] { width: 100%; color: #b6c2d2; font-size: 12px; }
   .upload-desc { margin-top: 8px; font-size: 12px; color: #94a3b8; line-height: 1.5; }
   .toggle-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 12px; color: #cbd5e1; line-height: 1.4; }
   .toggle-row input { width: auto !important; accent-color: #2563eb; }
@@ -62,17 +92,8 @@
 </head>
 <body>
 <div id="app">
-  <div id="viewport">
-    <div id="tabs">
-      <button id="tabA" class="active">① 四分之一玻璃光路图</button>
-      <button id="tabB">② 玻璃 3D 形状</button>
-    </div>
-    <div id="readout"></div>
-    <div id="angleHud"></div>
-  </div>
-  <div id="sidebar">
-    <h1>Liquid Glass 参数</h1>
-    <div class="sub">与 <code>misc/shaders/liquidglass.frag</code> 的 uniform 一一对应。拖动滑条，3D 视图实时重建；鼠标拖动旋转、滚轮缩放。</div>
+  <aside id="infoBar">
+    <div class="bar-head"><h1>图例与说明</h1><button id="collapseInfo" class="collapse-btn" title="收起信息栏">⟨</button></div>
     <div class="legend" id="legendA">
       <h2>颜色图例 · 四分之一玻璃光路图</h2>
       <div class="item"><span class="sw" style="background:#fde047"></span>入射光（视线，竖直向下）与 θi 弧</div>
@@ -100,16 +121,33 @@
       <div class="item"><span class="sw" style="background:#c084fc"></span>thickness 尺寸线</div>
       <div class="item" style="color:#64748b">radius &lt; bezelWidth 时角区色带撑宽（expanding-corners 分支）</div>
     </div>
+    <div class="note">视图①为玻璃<b>右边缘的垂直剖面</b>（x = 距轮廓距离，z = 厚度方向）；视图②为完整圆角矩形玻璃体。双击视图②可重置朝向正面。</div>
+  </aside>
+  <div id="viewport">
+    <button id="reopenInfo" class="reopen-btn" title="展开信息栏">信息 ⟨</button>
+    <div id="tabs">
+      <button id="tabA" class="active">① 四分之一玻璃光路图</button>
+      <button id="tabB">② 玻璃 3D 形状</button>
+    </div>
+    <div id="readout"></div>
+    <div id="angleHud"></div>
+    <button id="reopenParam" class="reopen-btn" title="展开参数栏">⟩ 参数</button>
+  </div>
+  <aside id="paramBar">
+    <div class="bar-head"><h1>Liquid Glass 参数</h1><button id="collapseParam" class="collapse-btn" title="收起参数栏">⟩</button></div>
+    <div class="sub">与 <code>misc/shaders/liquidglass.frag</code> 及 GlassEffect.qml / DConfig 一一对应。拖动滑条实时重建；视图②可拖动旋转、滚轮缩放。</div>
     <div class="upload-panel">
-      <div class="upload-title">上传底部贴图</div>
+      <div class="upload-title">上传底部贴图（视图 B）</div>
       <input id="textureUpload" type="file" accept="image/*">
-      <div class="upload-desc">只作用于视图 B；上传后玻璃下方图片会按折射参数产生位移。</div>
+      <div class="upload-desc">上传后玻璃下方图片会按折射/模糊/着色参数产生位移与效果。</div>
       <label class="toggle-row"><input id="clearGlass" type="checkbox"> 透明玻璃材质（无色，更接近 Treeland 实际效果）</label>
       <div class="button-row"><button id="resetParams" class="mini-button" type="button">重置参数</button><button id="clearWallpaper" class="mini-button" type="button">清空背景图</button></div>
     </div>
+    <div class="section-title">几何 / 折射</div>
     <div id="controls"></div>
-    <div class="note">specular / tint / brightness / contrast / saturation / blur 仅影响着色，不改变几何与折射光路，故不在本工具中展示。<br><br>视图①为玻璃<b>右边缘的垂直剖面</b>（x = 距轮廓距离，z = 厚度方向）；视图②为完整圆角矩形玻璃体。</div>
-  </div>
+    <div class="section-title">着色 / 模糊（视图 B）</div>
+    <div id="controlsEffect"></div>
+  </aside>
 </div>
 
 <script type="importmap">
@@ -150,6 +188,10 @@ const textureState = {
   clearGlass: false,
 };
 
+const effectState = {
+  blurEnabled: true,
+};
+
 function syncVizTextureState() {
   if (!window.__viz) return;
   window.__viz.textureLoaded = textureState.textureLoaded;
@@ -157,22 +199,8 @@ function syncVizTextureState() {
   window.__viz.glassOffset = { x: textureState.glassOffset.x, y: textureState.glassOffset.y };
   window.__viz.clearGlass = textureState.clearGlass;
   window.__viz.dragEnabled = textureState.dragEnabled;
+  window.__viz.blurEnabled = effectState.blurEnabled;
   window.__viz.debugRefractionAt = debugRefractionAt;
-}
-
-const STORAGE_STATE_KEY = 'liquidGlassViz.state.v2';
-const STORAGE_WALLPAPER_KEY = 'liquidGlassViz.wallpaper.v1';
-
-function setImageTexture(texture, loaded, resetOffset = true) {
-  if (textureState.textureLoaded && textureState.imageTexture) textureState.imageTexture.dispose();
-  textureState.imageTexture = loaded ? configureImageTexture(texture) : null;
-  textureState.textureLoaded = loaded;
-  textureState.dragEnabled = loaded;
-  if (resetOffset) textureState.glassOffset.set(0, 0);
-  textureState.imagePlaneSize.copy(loaded ? containImageSize(texture.image) : new THREE.Vector2(0, 0));
-  syncVizTextureState();
-  viewB.fitted = false;
-  rebuild();
 }
 
 /* ============ 参数（默认值与 treeland dconfig / GlassEffect.qml 一致） ============ */
@@ -190,7 +218,30 @@ const PARAMS = {
   contentRampEnd:   { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '拉拽在 bezel 内达到满值的 t（shader 内 clamp 到 ≥0.05）。视图 B 中影响贴图折射从边缘到内侧的过渡。' },
   rayPos:           { v: 0.25,min: 0,   max: 1,   step: 0.005,views: 'A',   desc: '光线沿四分之一轮廓的位置：0=顶边中点，1=右边中点，中间经过圆角。' },
   rayT:             { v: 0.5, min: 0.02,max: 0.98,step: 0.01, views: 'A',   desc: '光线命中点位置 t：0 = 轮廓边缘，1 = 平坦区起点。移动它观察角区/直边的斜率与折射。' },
+  // ---- 着色 / 模糊（对应 GlassEffect.qml + DConfig，仅视图 B 生效） ----
+  specular:         { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '玻璃边缘镜面高光不透明度（DConfig glassSpecular，0–1）。0 关闭高光。' },
+  tint:             { v: 0,   min: 0,   max: 0.4, step: 0.01, views: 'B',   group: 'effect', desc: '白色染色混合比例（DConfig glassTint，0–0.4）。0 关闭染色，折射色向白色靠拢。' },
+  brightness:       { v: 0,   min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景亮度调节（DConfig glassBrightness，-1–1）。0 保持不变，Qt MultiEffect 在折射前应用。' },
+  contrast:         { v: 0,   min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景对比度调节（DConfig glassContrast，-1–1）。0 保持不变。' },
+  saturation:       { v: 0.04,min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景饱和度调节（DConfig glassSaturation，-1–1）。默认 0.04 轻微提升饱和度。' },
+  blurAmount:       { v: 0.6, min: 0,   max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '归一化模糊量（DConfig blurAmount，0–1）。0 关闭模糊贡献，默认 0.6 使用 60% 模糊强度。' },
+  blurMax:          { v: 60,  min: 0,   max: 128, step: 1,    views: 'B',   group: 'effect', desc: '最大模糊强度像素（DConfig blurStrength，0–128）。0 完全关闭模糊。' },
+  blurMultiplier:   { v: 0,   min: 0,   max: 4,   step: 0.01, views: 'B',   group: 'effect', desc: '模糊半径扩展倍率（DConfig blurMultiplier，0–4）。0 用默认质量，值越大半径越大但质量降低。' },
 };
+const STORAGE_STATE_KEY = 'liquidGlassViz.state.v2';
+const STORAGE_WALLPAPER_KEY = 'liquidGlassViz.wallpaper.v1';
+
+function setImageTexture(texture, loaded, resetOffset = true) {
+  if (textureState.textureLoaded && textureState.imageTexture) textureState.imageTexture.dispose();
+  textureState.imageTexture = loaded ? configureImageTexture(texture) : null;
+  textureState.textureLoaded = loaded;
+  textureState.dragEnabled = loaded;
+  if (resetOffset) textureState.glassOffset.set(0, 0);
+  textureState.imagePlaneSize.copy(loaded ? containImageSize(texture.image) : new THREE.Vector2(0, 0));
+  syncVizTextureState();
+  viewB.fitted = false;
+  rebuild();
+}
 
 const PARAM_DEFAULTS = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
 
@@ -199,6 +250,7 @@ function saveAppState() {
   localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify({
     params,
     clearGlass: textureState.clearGlass,
+    blurEnabled: effectState.blurEnabled,
     glassOffset: { x: textureState.glassOffset.x, y: textureState.glassOffset.y },
   }));
 }
@@ -214,6 +266,7 @@ function loadSavedState() {
       }
     }
     textureState.clearGlass = !!saved.clearGlass;
+    effectState.blurEnabled = saved.blurEnabled !== false;
     if (saved.glassOffset && Number.isFinite(saved.glassOffset.x) && Number.isFinite(saved.glassOffset.y)) {
       textureState.glassOffset.set(saved.glassOffset.x, saved.glassOffset.y);
     }
@@ -231,11 +284,14 @@ function syncParamControls() {
     input.value = o.v;
     val.textContent = o.v;
   }
+  const blurBox = document.getElementById('blurEnabled');
+  if (blurBox) blurBox.checked = effectState.blurEnabled;
 }
 
 function resetParams() {
   for (const [key, value] of Object.entries(PARAM_DEFAULTS)) PARAMS[key].v = value;
   textureState.clearGlass = false;
+  effectState.blurEnabled = true;
   document.getElementById('clearGlass').checked = false;
   syncParamControls();
   saveAppState();
@@ -761,6 +817,16 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
       contentRampEnd: { value: P.contentRampEnd },
       profilePower: { value: P.profilePower },
       cornerMode: { value: mode },
+      specular: { value: P.specular },
+      tint: { value: P.tint },
+      brightness: { value: P.brightness },
+      contrast: { value: P.contrast },
+      saturation: { value: P.saturation },
+      blurAmount: { value: P.blurAmount },
+      blurMax: { value: P.blurMax },
+      blurMultiplier: { value: P.blurMultiplier },
+      blurEnabled: { value: effectState.blurEnabled ? 1 : 0 },
+      lightDirection: { value: new THREE.Vector2(0.5, -0.7) },
     },
     vertexShader: `
       varying vec2 vLocal;
@@ -772,8 +838,9 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
     fragmentShader: `
       precision highp float;
       uniform sampler2D map;
-      uniform vec2 halfSize, imagePlaneSize, glassOffset;
+      uniform vec2 halfSize, imagePlaneSize, glassOffset, lightDirection;
       uniform float radius, bezelWidth, thickness, ior, refractionMaxTan, contentEdgePull, contentRampEnd, profilePower, cornerMode;
+      uniform float specular, tint, brightness, contrast, saturation, blurAmount, blurMax, blurMultiplier, blurEnabled;
       varying vec2 vLocal;
       float sdRound(vec2 p, vec2 b, float r) {
         vec2 q = abs(p) - (b - vec2(r));
@@ -819,7 +886,33 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float dx = fieldT(p + vec2(e, 0.0)) - fieldT(p - vec2(e, 0.0));
         float dy = fieldT(p + vec2(0.0, e)) - fieldT(p - vec2(0.0, e));
         vec2 g = vec2(dx, dy);
-        return normalize(-g + vec2(1e-5));
+        return normalize(-g + vec2(1e-5)); // 外法线 n2（与 liquidglass.frag 一致）
+      }
+      // Qt MultiEffect 颜色调节（折射前应用于背景采样）
+      vec3 adjustColor(vec3 c) {
+        c = c + brightness;
+        c = (c - 0.5) * (1.0 + contrast) + 0.5;
+        float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        c = mix(vec3(luma), c, 1.0 + saturation);
+        return clamp(c, 0.0, 1.0);
+      }
+      // 3×3 高斯模糊（单 pass 近似 Qt MultiEffect backdrop blur）
+      vec3 sampleProcessed(vec2 uv) {
+        float radiusPx = blurEnabled > 0.5 ? blurAmount * blurMax * (1.0 + blurMultiplier) : 0.0;
+        vec2 clamped = clamp(uv, vec2(0.001), vec2(0.999));
+        if (radiusPx < 0.5) return adjustColor(texture2D(map, clamped).rgb);
+        vec2 d = vec2(radiusPx) / max(imagePlaneSize, vec2(1.0));
+        vec3 sum = vec3(0.0);
+        sum += adjustColor(texture2D(map, clamp(uv + vec2(-1.0, -1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2( 0.0, -1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2( 1.0, -1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2(-1.0,  0.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
+        sum += adjustColor(texture2D(map, clamped).rgb) * 4.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2( 1.0,  0.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2(-1.0,  1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2( 0.0,  1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2( 1.0,  1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
+        return sum / 16.0;
       }
       void main() {
         vec2 uv = (glassOffset + vLocal) / imagePlaneSize + 0.5;
@@ -838,13 +931,33 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float ramp = mix(contentEdgePull, 1.0, smoothstep(0.0, rampEnd, t));
         float maxDisp = min(min(bezelWidth * 0.85, thickness * 0.75), 48.0);
         float magG = min(thickness * h * ramp * max(slopeMag - tanT, 0.0), maxDisp);
-        vec2 duv = -fieldNormal(vLocal) * magG / imagePlaneSize; // 反向追踪：采样点在玻璃内侧（与 liquidglass.frag 的 inward*magG 一致）
+        vec2 n2 = fieldNormal(vLocal);          // 外法线
+        vec2 duv = -n2 * magG / imagePlaneSize;  // 向内采样（与 liquidglass.frag inward*magG 一致）
         vec2 sampleUv = uv + duv;
         float insideX = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0);
         float insideY = step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
         float insideImage = insideX * insideY;
-        vec4 color = texture2D(map, clamp(sampleUv, vec2(0.001), vec2(0.999)));
-        gl_FragColor = vec4(color.rgb, insideImage); // 玻璃像素完全替换背景，不与原图混合（与 liquidglass.frag 一致）
+        vec3 color = sampleProcessed(sampleUv);
+        // 镜面高光（与 liquidglass.frag specular 分支一致）
+        if (specular > 1e-4) {
+          float rr = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
+          float distFromEdge = -sdRound(vLocal, halfSize, rr);
+          vec3 N = normalize(vec3(n2 * slopeMag, 1.0));
+          float oneMinusCos = 1.0 - clamp(N.z, 0.0, 1.0);
+          float oneMinusCos2 = oneMinusCos * oneMinusCos;
+          float fresnel = 0.04 + 0.96 * oneMinusCos2 * oneMinusCos2 * oneMinusCos;
+          vec2 lightDir = normalize(lightDirection);
+          float rimDot = abs(dot(n2, lightDir));
+          float bezel = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
+          float rimFalloff = 1.0 - smoothstep(0.0, bezel * 0.45, distFromEdge);
+          float specHighlight = fresnel * pow(rimDot * rimFalloff, 1.35);
+          color += vec3(specHighlight * clamp(specular, 0.0, 1.0));
+          float innerRim = smoothstep(0.0, 2.0, distFromEdge) * (1.0 - smoothstep(2.0, 5.0, distFromEdge));
+          color += vec3(innerRim * 0.12 * clamp(specular, 0.0, 1.0));
+        }
+        // 白色染色（与 liquidglass.frag tint 一致）
+        if (tint > 1e-4) color = mix(color, vec3(1.0), clamp(tint, 0.0, 1.0));
+        gl_FragColor = vec4(clamp(color, 0.0, 1.0), insideImage);
       }
     `,
   });
@@ -1079,6 +1192,21 @@ function buildViewB(group) {
 
 /* ============ UI、切换与渲染循环 ============ */
 const controlsBox = document.getElementById('controls');
+const effectBox = document.getElementById('controlsEffect');
+// 模糊开关（blurEnabled）放在着色/模糊分组顶部
+const blurToggleRow = document.createElement('label');
+blurToggleRow.className = 'toggle-row';
+blurToggleRow.style.margin = '0 0 10px';
+blurToggleRow.innerHTML = '<input id="blurEnabled" type="checkbox"> 启用背景模糊（DConfig blurEnabled，关闭后玻璃内只做折射不着色模糊）';
+effectBox.appendChild(blurToggleRow);
+const blurEnabledInput = blurToggleRow.querySelector('input');
+blurEnabledInput.checked = effectState.blurEnabled;
+blurEnabledInput.addEventListener('change', ev => {
+  effectState.blurEnabled = ev.target.checked;
+  syncVizTextureState();
+  rebuild();
+  saveAppState();
+});
 for (const [key, o] of Object.entries(PARAMS)) {
   const div = document.createElement('div');
   div.className = 'param';
@@ -1094,7 +1222,7 @@ for (const [key, o] of Object.entries(PARAMS)) {
     rebuild();
     saveAppState();
   });
-  controlsBox.appendChild(div);
+  (o.group === 'effect' ? effectBox : controlsBox).appendChild(div);
 }
 
 document.getElementById('textureUpload').addEventListener('change', ev => {
@@ -1119,6 +1247,17 @@ document.getElementById('clearGlass').addEventListener('change', ev => {
 });
 document.getElementById('resetParams').addEventListener('click', resetParams);
 document.getElementById('clearWallpaper').addEventListener('click', clearWallpaper);
+// 边栏折叠 / 展开
+const infoBar = document.getElementById('infoBar');
+const paramBar = document.getElementById('paramBar');
+const reopenInfo = document.getElementById('reopenInfo');
+const reopenParam = document.getElementById('reopenParam');
+function setInfoCollapsed(c) { infoBar.classList.toggle('collapsed', c); reopenInfo.style.display = c ? 'block' : 'none'; onResize(); }
+function setParamCollapsed(c) { paramBar.classList.toggle('collapsed', c); reopenParam.style.display = c ? 'block' : 'none'; onResize(); }
+document.getElementById('collapseInfo').addEventListener('click', () => setInfoCollapsed(true));
+document.getElementById('collapseParam').addEventListener('click', () => setParamCollapsed(true));
+reopenInfo.addEventListener('click', () => setInfoCollapsed(false));
+reopenParam.addEventListener('click', () => setParamCollapsed(false));
 
 function disposeGroup(g) {
   g.traverse(o => {
