@@ -1052,16 +1052,20 @@ function disposeBlurCanvas() {
 function isBlurTexture(t) { return !!(t && t === blurTexture); }
 
 // 返回经过模糊+颜色调节的背景纹理（折射 shader 直接采样它）。无任何效果时返回原图。
+// 离屏 canvas 用原图 native 分辨率（上限 2048），避免缩小再放大导致玻璃内内容发糊。
 function buildProcessedTexture(P) {
   const tex = textureState.imageTexture;
   if (!tex || !tex.image) return null;
   const img = tex.image;
-  const iw = Math.max(2, Math.round(textureState.imagePlaneSize.x));
-  const ih = Math.max(2, Math.round(textureState.imagePlaneSize.y));
-  const maxDim = 1024;
-  const sc = Math.min(1, maxDim / Math.max(iw, ih));
-  const w = Math.max(2, Math.round(iw * sc)), h = Math.max(2, Math.round(ih * sc));
-  const radiusPx = effectState.blurEnabled ? P.blurAmount * P.blurMax * (1 + P.blurMultiplier) : 0;
+  const ow = Math.max(2, img.naturalWidth || img.width || 2);
+  const oh = Math.max(2, img.naturalHeight || img.height || 2);
+  const maxDim = 2048;
+  const sc = Math.min(1, maxDim / Math.max(ow, oh));
+  const w = Math.max(2, Math.round(ow * sc)), h = Math.max(2, Math.round(oh * sc));
+  // 模糊半径按显示尺寸(imagePlaneSize)定义，换算到 canvas(原图)像素：乘原图/显示比
+  const dispW = Math.max(2, textureState.imagePlaneSize.x), dispH = Math.max(2, textureState.imagePlaneSize.y);
+  const radiusDisp = effectState.blurEnabled ? P.blurAmount * P.blurMax * (1 + P.blurMultiplier) : 0;
+  const radiusPx = radiusDisp * (w / dispW);   // 等效到 canvas 像素
   const doBlur = radiusPx >= 0.5;
   const doColor = (P.brightness !== 0 || P.contrast !== 0 || P.saturation !== 0);
   // 无模糊且无颜色调节 → 直接用原图，省去 canvas 处理
@@ -1080,8 +1084,7 @@ function buildProcessedTexture(P) {
   if (P.saturation !== 0) parts.push(`saturate(${(1 + P.saturation).toFixed(3)})`);
   blurCtx.clearRect(0, 0, w, h);
   blurCtx.filter = parts.length ? parts.join(' ') : 'none';
-  // drawImage 会按当前 filter 渲染；原图尺寸为 img.naturalWidth/Height，缩放到 w×h
-  blurCtx.drawImage(img, 0, 0, w, h);
+  blurCtx.drawImage(img, 0, 0, w, h);   // 1:1 或等比缩放，无额外降采样
   blurCtx.filter = 'none';
   if (!blurTexture) {
     blurTexture = new THREE.CanvasTexture(blurCanvas);
