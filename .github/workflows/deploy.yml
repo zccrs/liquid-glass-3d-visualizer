@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main, feature/texture-refraction-upload]
+    branches: [master, main, feature/texture-refraction-upload]
     paths: ['index.html', '.github/workflows/deploy.yml']
   workflow_dispatch:
 
