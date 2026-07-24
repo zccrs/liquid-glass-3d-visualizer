@@ -22,41 +22,78 @@
     font-family: "SF Mono", Consolas, monospace; font-size: 12.5px; line-height: 1.75; white-space: pre;
     display: none;
   }
-  #sidebar {
+  /* ---- 左侧信息边栏 ---- */
+  #infoBar {
+    width: 300px; flex-shrink: 0; overflow-y: auto; padding: 14px;
+    background: #131922; border-right: 1px solid #2a3546;
+    transition: width .18s ease, padding .18s ease, opacity .18s ease;
+  }
+  #infoBar.collapsed { width: 0; padding: 0; opacity: 0; overflow: hidden; border-right: none; }
+  /* ---- 右侧参数边栏 ---- */
+  #paramBar {
     width: 340px; flex-shrink: 0; overflow-y: auto; padding: 16px;
     background: #151c27; border-left: 1px solid #2a3546;
+    transition: width .18s ease, padding .18s ease, opacity .18s ease;
   }
-  #sidebar h1 { font-size: 16px; margin-bottom: 4px; color: #f1f5f9; }
-  #sidebar .sub { font-size: 12px; color: #7d8da3; margin-bottom: 14px; line-height: 1.5; }
-  .param { margin-bottom: 12px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; }
+  #paramBar.collapsed { width: 0; padding: 0; opacity: 0; overflow: hidden; border-left: none; }
+  .bar-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .bar-head h1 { font-size: 16px; color: #f1f5f9; }
+  .collapse-btn {
+    border: 1px solid #334155; background: #1a2332; color: #9fb0c5; border-radius: 6px;
+    width: 26px; height: 26px; cursor: pointer; font-size: 13px; line-height: 1; display: flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .collapse-btn:hover { background: #2b3b57; color: #fff; }
+  /* 折叠后浮出的展开按钮 */
+  .reopen-btn {
+    position: absolute; top: 12px; z-index: 11; border: 1px solid #33415580;
+    background: #1a2332cc; color: #9fb0c5; border-radius: 8px; padding: 6px 10px;
+    cursor: pointer; font-size: 13px; backdrop-filter: blur(6px); display: none;
+  }
+  .reopen-btn:hover { background: #2b3b57; color: #fff; }
+  #reopenInfo { left: 12px; top: 56px; }
+  #reopenParam { right: 12px; top: 12px; }
+  .sub { font-size: 12px; color: #7d8da3; margin-bottom: 14px; line-height: 1.5; }
+  .param { margin-bottom: 10px; padding: 9px 11px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; }
   .param .head { display: flex; justify-content: space-between; align-items: baseline; }
   .param .name { font-family: Consolas, monospace; font-size: 13.5px; color: #7dd3fc; font-weight: 600; }
   .param .views { font-size: 10px; color: #64748b; margin-left: 6px; font-family: inherit; }
   .param .val { font-family: Consolas, monospace; font-size: 13px; color: #fbbf24; }
-  .param input[type=range] { width: 100%; margin: 8px 0 6px; accent-color: #2563eb; }
-  .param .desc { font-size: 12px; color: #94a3b8; line-height: 1.55; }
+  .param input[type=range] { width: 100%; margin: 7px 0 5px; accent-color: #2563eb; }
+  .param .desc { font-size: 12px; color: #94a3b8; line-height: 1.5; }
+  .param.toggle-param { display: flex; align-items: center; gap: 10px; }
+  .param.toggle-param .head { flex: 1; }
+  .param.toggle-param input[type=range] { margin: 0; flex: 1; }
   .note { font-size: 11.5px; color: #64748b; line-height: 1.6; margin-top: 14px; padding-top: 12px; border-top: 1px dashed #2a3546; }
-  .legend { margin: 0 0 16px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; font-size: 12px; }
+  .legend { margin: 0 0 14px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; font-size: 12px; }
   .legend h2 { font-size: 13px; color: #f1f5f9; margin-bottom: 8px; }
   .legend .item { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; color: #b6c2d2; line-height: 1.4; }
   .legend .sw { width: 22px; height: 4px; border-radius: 2px; flex-shrink: 0; }
   .legend .sw.dot { width: 10px; height: 10px; border-radius: 50%; margin: 0 6px; }
   .legend .sw.dash { height: 2px; background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px); }
   .legend .sw.grad { background: linear-gradient(90deg, #f59e0b, #38bdf8, #e8f6ff); }
+  .section-title { font-size: 12px; color: #7d8da3; text-transform: uppercase; letter-spacing: .5px; margin: 14px 0 8px; }
+  .upload-panel { margin: 0 0 14px; padding: 10px 12px; background: #1a2332; border: 1px solid #2a3546; border-radius: 8px; }
+  .upload-title { font-size: 13px; color: #f1f5f9; margin-bottom: 8px; font-weight: 600; }
+  .upload-panel input[type=file] { width: 100%; color: #b6c2d2; font-size: 12px; }
+  .upload-desc { margin-top: 8px; font-size: 12px; color: #94a3b8; line-height: 1.5; }
+  .toggle-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 12px; color: #cbd5e1; line-height: 1.4; }
+  .toggle-row input { width: auto !important; accent-color: #2563eb; }
+  .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .mini-button { border: 1px solid #334155; background: #223047; color: #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 12px; cursor: pointer; }
+  .mini-button:hover { background: #2b3b57; color: #fff; }
+  #angleHud {
+    position: absolute; right: 12px; bottom: 12px; z-index: 10;
+    padding: 8px 10px; border: 1px solid #33415580; border-radius: 8px;
+    background: #1a2332d9; color: #cbd5e1; font-family: "SF Mono", Consolas, monospace;
+    font-size: 12px; line-height: 1.5; white-space: pre; display: none;
+  }
 </style>
 </head>
 <body>
 <div id="app">
-  <div id="viewport">
-    <div id="tabs">
-      <button id="tabA" class="active">① 四分之一玻璃光路图</button>
-      <button id="tabB">② 玻璃 3D 形状</button>
-    </div>
-    <div id="readout"></div>
-  </div>
-  <div id="sidebar">
-    <h1>Liquid Glass 参数</h1>
-    <div class="sub">与 <code>misc/shaders/liquidglass.frag</code> 的 uniform 一一对应。拖动滑条，3D 视图实时重建；鼠标拖动旋转、滚轮缩放。</div>
+  <aside id="infoBar">
+    <div class="bar-head"><h1>图例与说明</h1><button id="collapseInfo" class="collapse-btn" title="收起信息栏">⟨</button></div>
     <div class="legend" id="legendA">
       <h2>颜色图例 · 四分之一玻璃光路图</h2>
       <div class="item"><span class="sw" style="background:#fde047"></span>入射光（视线，竖直向下）与 θi 弧</div>
@@ -84,9 +121,33 @@
       <div class="item"><span class="sw" style="background:#c084fc"></span>thickness 尺寸线</div>
       <div class="item" style="color:#64748b">radius &lt; bezelWidth 时角区色带撑宽（expanding-corners 分支）</div>
     </div>
-    <div id="controls"></div>
-    <div class="note">specular / tint / brightness / contrast / saturation / blur 仅影响着色，不改变几何与折射光路，故不在本工具中展示。<br><br>视图①为玻璃<b>右边缘的垂直剖面</b>（x = 距轮廓距离，z = 厚度方向）；视图②为完整圆角矩形玻璃体。</div>
+    <div class="note">视图①为玻璃<b>右边缘的垂直剖面</b>（x = 距轮廓距离，z = 厚度方向）；视图②为完整圆角矩形玻璃体。双击视图②可重置朝向正面。</div>
+  </aside>
+  <div id="viewport">
+    <button id="reopenInfo" class="reopen-btn" title="展开信息栏">信息 ⟨</button>
+    <div id="tabs">
+      <button id="tabA" class="active">① 四分之一玻璃光路图</button>
+      <button id="tabB">② 玻璃 3D 形状</button>
+    </div>
+    <div id="readout"></div>
+    <div id="angleHud"></div>
+    <button id="reopenParam" class="reopen-btn" title="展开参数栏">⟩ 参数</button>
   </div>
+  <aside id="paramBar">
+    <div class="bar-head"><h1>Liquid Glass 参数</h1><button id="collapseParam" class="collapse-btn" title="收起参数栏">⟩</button></div>
+    <div class="sub">与 <code>misc/shaders/liquidglass.frag</code> 及 GlassEffect.qml / DConfig 一一对应。拖动滑条实时重建；视图②可拖动旋转、滚轮缩放。</div>
+    <div class="upload-panel">
+      <div class="upload-title">上传底部贴图（视图 B）</div>
+      <input id="textureUpload" type="file" accept="image/*">
+      <div class="upload-desc">上传后玻璃下方图片会按折射/模糊/着色参数产生位移与效果。</div>
+      <label class="toggle-row"><input id="clearGlass" type="checkbox"> 透明玻璃材质（无色，更接近 Treeland 实际效果）</label>
+      <div class="button-row"><button id="resetParams" class="mini-button" type="button">重置参数</button><button id="clearWallpaper" class="mini-button" type="button">清空背景图</button></div>
+    </div>
+    <div class="section-title">几何 / 折射</div>
+    <div id="controls"></div>
+    <div class="section-title">着色 / 模糊（视图 B）</div>
+    <div id="controlsEffect"></div>
+  </aside>
 </div>
 
 <script type="importmap">
@@ -100,6 +161,48 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+function configureImageTexture(texture) {
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
+
+function containImageSize(image, maxW = 640, maxH = 420) {
+  const iw = Math.max(image?.naturalWidth || image?.width || 1, 1);
+  const ih = Math.max(image?.naturalHeight || image?.height || 1, 1);
+  const s = Math.min(maxW / iw, maxH / ih);
+  return new THREE.Vector2(iw * s, ih * s);
+}
+
+const textureState = {
+  imageTexture: null,
+  textureLoaded: false,
+  imagePlaneSize: new THREE.Vector2(0, 0),
+  glassOffset: new THREE.Vector2(0, 0),
+  dragEnabled: false,
+  dragging: false,
+  dragStartPoint: new THREE.Vector3(),
+  dragStartOffset: new THREE.Vector2(),
+  clearGlass: false,
+};
+
+const effectState = {
+  blurEnabled: true,
+};
+
+function syncVizTextureState() {
+  if (!window.__viz) return;
+  window.__viz.textureLoaded = textureState.textureLoaded;
+  window.__viz.imagePlaneSize = { x: textureState.imagePlaneSize.x, y: textureState.imagePlaneSize.y };
+  window.__viz.glassOffset = { x: textureState.glassOffset.x, y: textureState.glassOffset.y };
+  window.__viz.clearGlass = textureState.clearGlass;
+  window.__viz.dragEnabled = textureState.dragEnabled;
+  window.__viz.blurEnabled = effectState.blurEnabled;
+  window.__viz.debugRefractionAt = debugRefractionAt;
+}
+
 /* ============ 参数（默认值与 treeland dconfig / GlassEffect.qml 一致） ============ */
 const PARAMS = {
   width:            { v: 300, min: 20,  max: 400, step: 1,    views: 'A+B', desc: '玻璃元素宽度（px），即 shader 中 itemSize.x。决定圆角矩形外框。' },
@@ -109,13 +212,118 @@ const PARAMS = {
   thickness:        { v: 50,  min: 10,  max: 200, step: 1,    views: 'A+B', desc: '玻璃基础厚度（px）。剖面最大高度 H = h(t)·thickness，同时直接放大折射位移。' },
   profilePower:     { v: 4,   min: 1,   max: 8,   step: 0.1,  views: 'A+B', desc: '剖面曲线指数 p：h = (1−(1−t)^p)^(1/p)。shader 固定 p=4（squircle），p=2 为圆弧，p 越大边缘越陡。【可视化扩展参数】' },
   cornerField:      { v: 0,   min: 0,   max: 2,   step: 1,    views: 'A+B', desc: '角区 t 场策略：0=自动（radius <= bezelWidth 时用 smooth 角区场，避免 shader 平台折痕）；1=强制当前 shader；2=强制双边平滑。' },
-  ior:              { v: 1.5, min: 1.0, max: 3.0, step: 0.01, views: 'A',   desc: '折射率。Snell 定律 sinθt = sinθi / ior。1.5 ≈ 普通玻璃。' },
-  refractionMaxTan: { v: 2.75,min: 0.1, max: 8,   step: 0.05, views: 'A',   desc: '几何斜率 tanθi 的上限。轮廓附近剖面导数趋于无穷，靠它截断避免尖刺。效果见背景图表中的青绿色曲线与白色虚线。' },
-  contentEdgePull:  { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A',   desc: '唇边保留的拉拽比例 (0–1)，即 t=0 处 contentRamp 的下限。GlassEffect.qml 未绑定此 uniform，实际运行值为 0。效果见背景图表中的橙色曲线。' },
-  contentRampEnd:   { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A',   desc: '拉拽在 bezel 内达到满值的 t（shader 内 clamp 到 ≥0.05）。未绑定时实际为 0.05。效果见背景图表中的橙色曲线。' },
+  ior:              { v: 1.5, min: 1.0, max: 3.0, step: 0.01, views: 'A+B', desc: '折射率。Snell 定律 sinθt = sinθi / ior。1.5 ≈ 普通玻璃；视图 B 中会改变底部贴图折射强度。' },
+  refractionMaxTan: { v: 2.75,min: 0.1, max: 8,   step: 0.05, views: 'A+B', desc: '几何斜率 tanθi 的上限。视图 A 看曲线；视图 B 中限制底部贴图位移，避免边缘尖刺。' },
+  contentEdgePull:  { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '唇边保留的拉拽比例 (0–1)，即 t=0 处 contentRamp 的下限。视图 B 中影响贴图靠边处的位移。' },
+  contentRampEnd:   { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '拉拽在 bezel 内达到满值的 t（shader 内 clamp 到 ≥0.05）。视图 B 中影响贴图折射从边缘到内侧的过渡。' },
   rayPos:           { v: 0.25,min: 0,   max: 1,   step: 0.005,views: 'A',   desc: '光线沿四分之一轮廓的位置：0=顶边中点，1=右边中点，中间经过圆角。' },
   rayT:             { v: 0.5, min: 0.02,max: 0.98,step: 0.01, views: 'A',   desc: '光线命中点位置 t：0 = 轮廓边缘，1 = 平坦区起点。移动它观察角区/直边的斜率与折射。' },
+  // ---- 着色 / 模糊（对应 GlassEffect.qml + DConfig，仅视图 B 生效） ----
+  specular:         { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '玻璃边缘镜面高光不透明度（DConfig glassSpecular，0–1）。0 关闭高光。' },
+  tint:             { v: 0,   min: 0,   max: 0.4, step: 0.01, views: 'B',   group: 'effect', desc: '白色染色混合比例（DConfig glassTint，0–0.4）。0 关闭染色，折射色向白色靠拢。' },
+  brightness:       { v: 0,   min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景亮度调节（DConfig glassBrightness，-1–1）。0 保持不变，Qt MultiEffect 在折射前应用。' },
+  contrast:         { v: 0,   min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景对比度调节（DConfig glassContrast，-1–1）。0 保持不变。' },
+  saturation:       { v: 0.04,min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景饱和度调节（DConfig glassSaturation，-1–1）。默认 0.04 轻微提升饱和度。' },
+  blurAmount:       { v: 0.6, min: 0,   max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '归一化模糊量（DConfig blurAmount，0–1）。0 关闭模糊贡献，默认 0.6 使用 60% 模糊强度。' },
+  blurMax:          { v: 60,  min: 0,   max: 128, step: 1,    views: 'B',   group: 'effect', desc: '最大模糊强度像素（DConfig blurStrength，0–128）。0 完全关闭模糊。' },
+  blurMultiplier:   { v: 0,   min: 0,   max: 4,   step: 0.01, views: 'B',   group: 'effect', desc: '模糊半径扩展倍率（DConfig blurMultiplier，0–4）。0 用默认质量，值越大半径越大但质量降低。' },
 };
+const STORAGE_STATE_KEY = 'liquidGlassViz.state.v2';
+const STORAGE_WALLPAPER_KEY = 'liquidGlassViz.wallpaper.v1';
+
+function setImageTexture(texture, loaded, resetOffset = true) {
+  if (textureState.textureLoaded && textureState.imageTexture) textureState.imageTexture.dispose();
+  textureState.imageTexture = loaded ? configureImageTexture(texture) : null;
+  textureState.textureLoaded = loaded;
+  textureState.dragEnabled = loaded;
+  if (resetOffset) textureState.glassOffset.set(0, 0);
+  textureState.imagePlaneSize.copy(loaded ? containImageSize(texture.image) : new THREE.Vector2(0, 0));
+  syncVizTextureState();
+  viewB.fitted = false;
+  rebuild();
+}
+
+const PARAM_DEFAULTS = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+
+function saveAppState() {
+  const params = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+  localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify({
+    params,
+    clearGlass: textureState.clearGlass,
+    blurEnabled: effectState.blurEnabled,
+    glassOffset: { x: textureState.glassOffset.x, y: textureState.glassOffset.y },
+  }));
+}
+
+function loadSavedState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_STATE_KEY) || '{}');
+    if (saved.params && typeof saved.params === 'object') {
+      for (const [key, value] of Object.entries(saved.params)) {
+        const p = PARAMS[key];
+        if (!p || !Number.isFinite(value)) continue;
+        p.v = Math.min(Math.max(value, p.min), p.max);
+      }
+    }
+    textureState.clearGlass = !!saved.clearGlass;
+    effectState.blurEnabled = saved.blurEnabled !== false;
+    if (saved.glassOffset && Number.isFinite(saved.glassOffset.x) && Number.isFinite(saved.glassOffset.y)) {
+      textureState.glassOffset.set(saved.glassOffset.x, saved.glassOffset.y);
+    }
+  } catch (err) {
+    console.warn('Failed to restore saved visualizer state:', err);
+  }
+}
+
+function syncParamControls() {
+  for (const [key, o] of Object.entries(PARAMS)) {
+    const row = [...document.querySelectorAll('.param')].find(e => e.querySelector('.name')?.textContent === key);
+    if (!row) continue;
+    const input = row.querySelector('input');
+    const val = row.querySelector('.val');
+    input.value = o.v;
+    val.textContent = o.v;
+  }
+  const blurBox = document.getElementById('blurEnabled');
+  if (blurBox) blurBox.checked = effectState.blurEnabled;
+}
+
+function resetParams() {
+  for (const [key, value] of Object.entries(PARAM_DEFAULTS)) PARAMS[key].v = value;
+  textureState.clearGlass = false;
+  effectState.blurEnabled = true;
+  document.getElementById('clearGlass').checked = false;
+  syncParamControls();
+  saveAppState();
+  rebuild();
+}
+
+function clearWallpaper() {
+  localStorage.removeItem(STORAGE_WALLPAPER_KEY);
+  if (textureState.textureLoaded && textureState.imageTexture) textureState.imageTexture.dispose();
+  textureState.imageTexture = null;
+  textureState.textureLoaded = false;
+  textureState.dragEnabled = false;
+  textureState.dragging = false;
+  textureState.glassOffset.set(0, 0);
+  textureState.imagePlaneSize.set(0, 0);
+  document.getElementById('textureUpload').value = '';
+  syncVizTextureState();
+  viewB.fitted = false;
+  saveAppState();
+  rebuild();
+}
+
+function restoreSavedWallpaper() {
+  const dataUrl = localStorage.getItem(STORAGE_WALLPAPER_KEY);
+  if (!dataUrl) return;
+  new THREE.TextureLoader().load(dataUrl, tex => setImageTexture(tex, true, false), undefined, err => {
+    console.warn('Failed to restore saved wallpaper:', err);
+    localStorage.removeItem(STORAGE_WALLPAPER_KEY);
+  });
+}
+
+loadSavedState();
 
 /* ============ 数学：逐行移植自 liquidglass.frag ============ */
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
@@ -180,6 +388,17 @@ function shaderField(t, bezel, thick, P) {
   return { rawTan, maxTan, outerSoft, slopeMag, sinT, ramp, maxDisp, magG: Math.min(raw, maxDisp), capped: raw > maxDisp };
 }
 
+function smoother01(v) {
+  v = clamp(v, 0, 1);
+  return v * v * v * (v * (v * 6 - 15) + 10);
+}
+
+function smoothCornerT(topProgress, sideProgress) {
+  // radius < bezel 时，角区应由两个方向的 bezel 进度共同决定。
+  // sqrt(smoothX*smoothY) 保持边界 t=0、内角 t=1，并让 radius=0 也有完整 bezel 折射带。
+  return Math.sqrt(smoother01(topProgress) * smoother01(sideProgress));
+}
+
 // 与 shader main() 相同的分支：任一点的 (t, localBezel, expanding)
 function fieldAt(px, py, hx, hy, radius, bezelWidth, mode = 0) {
   const outerRadius = Math.min(Math.max(radius, 0), Math.min(hx, hy));
@@ -193,17 +412,7 @@ function fieldAt(px, py, hx, hy, radius, bezelWidth, mode = 0) {
       const outerY = dy < rr ? rr - Math.sqrt(Math.max(0, dy * (2 * rr - dy))) : 0; // left/right outer arc
       const topProgress = clamp((dy - outerX) / b, 0, 1);
       const sideProgress = clamp((dx - outerY) / b, 0, 1);
-      const hamacher = (topProgress * sideProgress) / Math.max(topProgress + sideProgress - topProgress * sideProgress, 1e-4);
-      const smoother = v => v * v * v * (v * (v * 6 - 15) + 10);
-      const wt = smoother(topProgress), ws = smoother(sideProgress);
-      const p = 2.6;
-      const q = Math.pow(Math.pow(1 - topProgress, p) + Math.pow(1 - sideProgress, p), 1 / p);
-      const superCorner = clamp(1 - q, 0, 1);
-      const smoothT = hamacher * (1 - wt) * (1 - ws)
-        + sideProgress * wt * (1 - ws)
-        + topProgress * ws * (1 - wt)
-        + superCorner * wt * ws;
-      const cornerDist = Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
+      const smoothT = smoothCornerT(topProgress, sideProgress);
       const mix = mode < 0 ? 1 : mode;
       return { t: clamp(shaderT * (1 - mix) + smoothT * mix, 0, 1), bezel: sizeLimitedBezel, expanding: true };
     }
@@ -235,6 +444,26 @@ function fieldNormal(px, py, hx, hy, radius, bezelWidth, mode = 0) {
   return { n2: [-gx / len, -gy / len], localBezel: 1 / len };
 }
 
+function debugRefractionAt(px, py) {
+  const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+  const hx = P.width / 2, hy = P.height / 2;
+  const mode = effectiveCornerMode(P, hx, hy);
+  const f = fieldAt(px, py, hx, hy, P.radius, P.bezelWidth, mode);
+  const n = fieldNormal(px, py, hx, hy, P.radius, P.bezelWidth, mode).n2;
+  const [h, deriv] = surfaceProfile(f.t, P.profilePower);
+  const rawTan = deriv * (P.thickness / Math.max(f.bezel, 1));
+  const slopeMag = Math.min(rawTan, Math.max(P.refractionMaxTan, 0.1));
+  const sinI = slopeMag / Math.hypot(slopeMag, 1);
+  const sinT = Math.min(sinI / Math.max(P.ior, 1.0001), 0.999);
+  const tanT = sinT / Math.sqrt(Math.max(1 - sinT * sinT, 1e-4));
+  const rampEnd = Math.max(P.contentRampEnd, 1e-4);
+  const ramp = clamp(P.contentEdgePull, 0, 1) + (1 - clamp(P.contentEdgePull, 0, 1)) * THREE.MathUtils.smoothstep(f.t, 0, rampEnd);
+  const maxDisp = Math.min(Math.min(f.bezel * 0.85, P.thickness * 0.75), 48);
+  const raw = P.thickness * h * ramp * Math.max(slopeMag - tanT, 0);
+  const magG = Math.min(raw, maxDisp);
+  return { t: f.t, bezel: f.bezel, mode, n2: n, magG, sampleOffset: [-n[0] * magG, -n[1] * magG] };
+}
+
 /* ============ 3D 基础 ============ */
 const viewport = document.getElementById('viewport');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -253,7 +482,7 @@ function makeScene() {
   return { scene, camera, controls, group: null, fitted: false };
 }
 const viewA = makeScene(), viewB = makeScene();
-window.__viz = { viewA, viewB }; // 调试句柄
+window.__viz = { viewA, viewB, textureLoaded: false, debugRefractionAt }; // 调试句柄
 let active = viewA, activeName = 'A';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -569,12 +798,283 @@ function sdGrad(x, y, hx, hy, r) {
   return [gx / l, gy / l];
 }
 
+
+function makeRefractedMaterial(P, hx, hy, tex, mode) {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: {
+      map: { value: tex },
+      halfSize: { value: new THREE.Vector2(hx, hy) },
+      imagePlaneSize: { value: textureState.imagePlaneSize.clone() },
+      glassOffset: { value: textureState.glassOffset.clone() },
+      radius: { value: P.radius },
+      bezelWidth: { value: P.bezelWidth },
+      thickness: { value: P.thickness },
+      ior: { value: P.ior },
+      refractionMaxTan: { value: P.refractionMaxTan },
+      contentEdgePull: { value: P.contentEdgePull },
+      contentRampEnd: { value: P.contentRampEnd },
+      profilePower: { value: P.profilePower },
+      cornerMode: { value: mode },
+      specular: { value: P.specular },
+      tint: { value: P.tint },
+      brightness: { value: P.brightness },
+      contrast: { value: P.contrast },
+      saturation: { value: P.saturation },
+      blurAmount: { value: P.blurAmount },
+      blurMax: { value: P.blurMax },
+      blurMultiplier: { value: P.blurMultiplier },
+      blurEnabled: { value: effectState.blurEnabled ? 1 : 0 },
+      lightDirection: { value: new THREE.Vector2(0.5, -0.7) },
+    },
+    vertexShader: `
+      varying vec2 vLocal;
+      void main() {
+        vLocal = position.xy;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      uniform sampler2D map;
+      uniform vec2 halfSize, imagePlaneSize, glassOffset, lightDirection;
+      uniform float radius, bezelWidth, thickness, ior, refractionMaxTan, contentEdgePull, contentRampEnd, profilePower, cornerMode;
+      uniform float specular, tint, brightness, contrast, saturation, blurAmount, blurMax, blurMultiplier, blurEnabled;
+      varying vec2 vLocal;
+      float sdRound(vec2 p, vec2 b, float r) {
+        vec2 q = abs(p) - (b - vec2(r));
+        return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
+      }
+      float arcOuter(float d, float r) {
+        return d < r ? r - sqrt(max(0.0, d * (2.0 * r - d))) : 0.0;
+      }
+      float arcInner(float d, float b) {
+        return d < b ? b - sqrt(max(0.0, d * (2.0 * b - d))) : b;
+      }
+      float shaderT(vec2 p, float rr, float b) {
+        float dx = halfSize.x - abs(p.x);
+        float dy = halfSize.y - abs(p.y);
+        float outer = dy <= dx ? arcOuter(dx, rr) : arcOuter(dy, rr);
+        float inner = dy <= dx ? arcInner(dx, b) : arcInner(dy, b);
+        float dist = dy <= dx ? dy - outer : dx - outer;
+        return clamp(dist / max(inner - outer, 1e-4), 0.0, 1.0);
+      }
+      float smoother(float v) {
+        return v * v * v * (v * (v * 6.0 - 15.0) + 10.0);
+      }
+      float smoothCornerT(float topProgress, float sideProgress) {
+        return sqrt(smoother(topProgress) * smoother(sideProgress));
+      }
+      float fieldT(vec2 p) {
+        float rr = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
+        float b = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
+        float dist = -sdRound(p, halfSize, rr);
+        if (rr < b) {
+          float st = shaderT(p, rr, b);
+          if (cornerMode < 0.5) return st;
+          float dx = halfSize.x - abs(p.x);
+          float dy = halfSize.y - abs(p.y);
+          float topProgress = clamp((dy - arcOuter(dx, rr)) / b, 0.0, 1.0);
+          float sideProgress = clamp((dx - arcOuter(dy, rr)) / b, 0.0, 1.0);
+          return smoothCornerT(topProgress, sideProgress);
+        }
+        return clamp(dist / b, 0.0, 1.0);
+      }
+      vec2 fieldNormal(vec2 p) {
+        float e = 0.5;
+        float dx = fieldT(p + vec2(e, 0.0)) - fieldT(p - vec2(e, 0.0));
+        float dy = fieldT(p + vec2(0.0, e)) - fieldT(p - vec2(0.0, e));
+        vec2 g = vec2(dx, dy);
+        return normalize(-g + vec2(1e-5)); // 外法线 n2（与 liquidglass.frag 一致）
+      }
+      // Qt MultiEffect 颜色调节（折射前应用于背景采样）
+      vec3 adjustColor(vec3 c) {
+        c = c + brightness;
+        c = (c - 0.5) * (1.0 + contrast) + 0.5;
+        float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        c = mix(vec3(luma), c, 1.0 + saturation);
+        return clamp(c, 0.0, 1.0);
+      }
+      // 3×3 高斯模糊（单 pass 近似 Qt MultiEffect backdrop blur）
+      vec3 sampleProcessed(vec2 uv) {
+        float radiusPx = blurEnabled > 0.5 ? blurAmount * blurMax * (1.0 + blurMultiplier) : 0.0;
+        vec2 clamped = clamp(uv, vec2(0.001), vec2(0.999));
+        if (radiusPx < 0.5) return adjustColor(texture2D(map, clamped).rgb);
+        vec2 d = vec2(radiusPx) / max(imagePlaneSize, vec2(1.0));
+        vec3 sum = vec3(0.0);
+        sum += adjustColor(texture2D(map, clamp(uv + vec2(-1.0, -1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2( 0.0, -1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2( 1.0, -1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2(-1.0,  0.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
+        sum += adjustColor(texture2D(map, clamped).rgb) * 4.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2( 1.0,  0.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2(-1.0,  1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2( 0.0,  1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
+        sum += adjustColor(texture2D(map, clamp(uv + vec2( 1.0,  1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
+        return sum / 16.0;
+      }
+      void main() {
+        vec2 uv = (glassOffset + vLocal) / imagePlaneSize + 0.5;
+        float t = fieldT(vLocal);
+        float s = 1.0 - t;
+        float p = max(profilePower, 1.0);
+        float inside = max(1.0 - pow(s, p), 1e-4);
+        float h = pow(inside, 1.0 / p);
+        float deriv = pow(s, p - 1.0) * h / inside;
+        float rawTan = deriv * (thickness / max(bezelWidth, 1.0));
+        float slopeMag = min(rawTan, max(refractionMaxTan, 0.1));
+        float sinI = slopeMag / sqrt(1.0 + slopeMag * slopeMag);
+        float sinT = clamp(sinI / max(ior, 1.0001), 0.0, 0.999);
+        float tanT = sinT / sqrt(max(1.0 - sinT * sinT, 1e-4));
+        float rampEnd = max(contentRampEnd, 1e-4);
+        float ramp = mix(contentEdgePull, 1.0, smoothstep(0.0, rampEnd, t));
+        float maxDisp = min(min(bezelWidth * 0.85, thickness * 0.75), 48.0);
+        float magG = min(thickness * h * ramp * max(slopeMag - tanT, 0.0), maxDisp);
+        vec2 n2 = fieldNormal(vLocal);          // 外法线
+        vec2 duv = -n2 * magG / imagePlaneSize;  // 向内采样（与 liquidglass.frag inward*magG 一致）
+        vec2 sampleUv = uv + duv;
+        float insideX = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0);
+        float insideY = step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
+        float insideImage = insideX * insideY;
+        vec3 color = sampleProcessed(sampleUv);
+        // 镜面高光（与 liquidglass.frag specular 分支一致）
+        if (specular > 1e-4) {
+          float rr = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
+          float distFromEdge = -sdRound(vLocal, halfSize, rr);
+          vec3 N = normalize(vec3(n2 * slopeMag, 1.0));
+          float oneMinusCos = 1.0 - clamp(N.z, 0.0, 1.0);
+          float oneMinusCos2 = oneMinusCos * oneMinusCos;
+          float fresnel = 0.04 + 0.96 * oneMinusCos2 * oneMinusCos2 * oneMinusCos;
+          vec2 lightDir = normalize(lightDirection);
+          float rimDot = abs(dot(n2, lightDir));
+          float bezel = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
+          float rimFalloff = 1.0 - smoothstep(0.0, bezel * 0.45, distFromEdge);
+          float specHighlight = fresnel * pow(rimDot * rimFalloff, 1.35);
+          color += vec3(specHighlight * clamp(specular, 0.0, 1.0));
+          float innerRim = smoothstep(0.0, 2.0, distFromEdge) * (1.0 - smoothstep(2.0, 5.0, distFromEdge));
+          color += vec3(innerRim * 0.12 * clamp(specular, 0.0, 1.0));
+        }
+        // 白色染色（与 liquidglass.frag tint 一致）
+        if (tint > 1e-4) color = mix(color, vec3(1.0), clamp(tint, 0.0, 1.0));
+        gl_FragColor = vec4(clamp(color, 0.0, 1.0), insideImage);
+      }
+    `,
+  });
+}
+
+function makeGlassMaskMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: {
+      imagePlaneSize: { value: textureState.imagePlaneSize.clone() },
+      glassOffset: { value: textureState.glassOffset.clone() },
+      useTint: { value: textureState.clearGlass ? 0 : 1 },
+    },
+    vertexShader: `
+      varying vec2 vLocal;
+      varying vec3 vColor;
+      varying vec3 vNormal;
+      varying vec3 vWorld;
+      void main() {
+        vLocal = position.xy;
+        vColor = color;
+        vNormal = normalize(normalMatrix * normal);
+        vec4 wp = modelViewMatrix * vec4(position, 1.0);
+        vWorld = wp.xyz;
+        gl_Position = projectionMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      uniform vec2 imagePlaneSize, glassOffset;
+      uniform float useTint;
+      varying vec2 vLocal;
+      varying vec3 vColor;
+      varying vec3 vNormal;
+      varying vec3 vWorld;
+      float imageMask(vec2 local) {
+        vec2 uv = (glassOffset + local) / imagePlaneSize + 0.5;
+        float insideX = step(0.0, uv.x) * step(uv.x, 1.0);
+        float insideY = step(0.0, uv.y) * step(uv.y, 1.0);
+        return insideX * insideY;
+      }
+      void main() {
+        float mask = imageMask(vLocal);
+        vec3 lightDir = normalize(vec3(0.35, 0.45, 0.8));
+        float shade = 0.72 + 0.28 * max(dot(normalize(vNormal), lightDir), 0.0);
+        vec3 rgb = mix(vec3(1.0), vColor, useTint) * shade;
+        gl_FragColor = vec4(rgb, 0.52 * mask + 0.08 * (1.0 - mask));
+      }
+    `,
+    vertexColors: true,
+    side: THREE.DoubleSide,
+  });
+}
+
+function makeSideMaskMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: {
+      imagePlaneSize: { value: textureState.imagePlaneSize.clone() },
+      useTint: { value: textureState.clearGlass ? 0 : 1 },
+      glassOffset: { value: textureState.glassOffset.clone() },
+    },
+    vertexShader: `
+      varying vec2 vLocal;
+      varying vec3 vNormal;
+      void main() {
+        vLocal = position.xy;
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      uniform vec2 imagePlaneSize, glassOffset;
+      uniform float useTint;
+      varying vec2 vLocal;
+      varying vec3 vNormal;
+      float imageMask(vec2 local) {
+        vec2 uv = (glassOffset + local) / imagePlaneSize + 0.5;
+        float insideX = step(0.0, uv.x) * step(uv.x, 1.0);
+        float insideY = step(0.0, uv.y) * step(uv.y, 1.0);
+        return insideX * insideY;
+      }
+      void main() {
+        float mask = imageMask(vLocal);
+        float shade = 0.78 + 0.22 * abs(normalize(vNormal).z);
+        vec3 rgb = mix(vec3(1.0), vec3(0.42, 0.70, 0.92), useTint) * shade;
+        gl_FragColor = vec4(rgb, 0.42 * mask + 0.04 * (1.0 - mask));
+      }
+    `,
+    side: THREE.DoubleSide,
+  });
+}
+
 function buildViewB(group) {
   const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
   const hx = P.width / 2, hy = P.height / 2;
   const thick = P.thickness;
   const mode = effectiveCornerMode(P, hx, hy);
   const skirt = Math.max(6, thick * 0.12);
+  const previewMode = textureState.textureLoaded && textureState.imageTexture;
+  const glassGroup = previewMode ? new THREE.Group() : group;
+  if (previewMode) {
+    const backdrop = new THREE.Mesh(
+      new THREE.PlaneGeometry(textureState.imagePlaneSize.x, textureState.imagePlaneSize.y),
+      new THREE.MeshBasicMaterial({ map: textureState.imageTexture, side: THREE.DoubleSide })
+    );
+    backdrop.position.z = -skirt - 4;
+    backdrop.renderOrder = -1;
+    group.add(backdrop);
+    viewB.imageBackdrop = backdrop;
+  } else {
+    viewB.imageBackdrop = null;
+    viewB.refractedMesh = null;
+  }
   const { bezel } = fieldAt(0, 0, hx, hy, P.radius, P.bezelWidth, mode);
 
   /* --- 顶面：轮廓环形网格。外圈就是真实 rounded-rect 轮廓，避免规则网格裁剪造成狗啃边。 --- */
@@ -613,10 +1113,24 @@ function buildViewB(group) {
   tg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   tg.setIndex(idx);
   tg.computeVertexNormals();
-  group.add(new THREE.Mesh(tg, new THREE.MeshPhysicalMaterial({
-    vertexColors: true, transparent: true, opacity: 0.88, roughness: 0.12, metalness: 0,
-    clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide,
-  })));
+  if (previewMode) {
+    const rg = tg.clone();
+    const rp = rg.attributes.position.array;
+    for (let i = 2; i < rp.length; i += 3) rp[i] -= 0.6;
+    rg.attributes.position.needsUpdate = true;
+    const refracted = new THREE.Mesh(rg, makeRefractedMaterial(P, hx, hy, textureState.imageTexture, mode));
+    refracted.renderOrder = 1;
+    glassGroup.add(refracted);
+    viewB.refractedMesh = refracted;
+  }
+
+  const topMesh = new THREE.Mesh(tg, previewMode ? makeGlassMaskMaterial() : new THREE.MeshPhysicalMaterial({
+    vertexColors: true, transparent: true, opacity: 0.56, roughness: 0.12, metalness: 0,
+    clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide, depthWrite: false,
+  }));
+  topMesh.renderOrder = 2;
+  glassGroup.add(topMesh);
+  viewB.topMesh = topMesh;
 
   /* --- 侧壁 + 底面（与顶面 t=0 环同高，无缝衔接） --- */
   const m = loop.length;
@@ -634,16 +1148,17 @@ function buildViewB(group) {
   sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
   sg.setIndex(si);
   sg.computeVertexNormals();
-  group.add(new THREE.Mesh(sg, new THREE.MeshPhysicalMaterial({
+  glassGroup.add(new THREE.Mesh(sg, previewMode ? makeSideMaskMaterial() : new THREE.MeshPhysicalMaterial({
     color: 0x7cc4e8, transparent: true, opacity: 0.55, roughness: 0.2, metalness: 0, side: THREE.DoubleSide,
   })));
   // 轮廓线
-  group.add(lineObj([...loop.map(p => [p[0], p[1], h0 * thick + 0.4]), [loop[0][0], loop[0][1], h0 * thick + 0.4]], 0xe2e8f0)); // 轮廓线：白
+  glassGroup.add(lineObj([...loop.map(p => [p[0], p[1], h0 * thick + 0.4]), [loop[0][0], loop[0][1], h0 * thick + 0.4]], 0xe2e8f0)); // 轮廓线：白
 
+  if (!previewMode) {
   /* --- 参数标注 --- */
   // width / height
-  group.add(dimension([-hx, -hy - 24, -skirt], [hx, -hy - 24, -skirt], 0xfbbf24));      // width 琥珀色
-  group.add(dimension([hx + 24, -hy, -skirt], [hx + 24, hy, -skirt], 0x4ade80));       // height 绿色
+  glassGroup.add(dimension([-hx, -hy - 24, -skirt], [hx, -hy - 24, -skirt], 0xfbbf24));      // width 琥珀色
+  glassGroup.add(dimension([hx + 24, -hy, -skirt], [hx + 24, hy, -skirt], 0x4ade80));       // height 绿色
   // radius：右上角画圆弧 + 半径引线
   const rr = Math.min(Math.max(P.radius, 0), Math.min(hx, hy));
   if (rr > 2) {
@@ -653,24 +1168,45 @@ function buildViewB(group) {
       const a = (90 * i / 24) * Math.PI / 180;
       arcPts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a), az]);
     }
-    group.add(lineObj(arcPts, 0xf472b6));
+    glassGroup.add(lineObj(arcPts, 0xf472b6));
     const m45 = [cx + rr * Math.SQRT1_2, cy + rr * Math.SQRT1_2, az];
-    group.add(arrow([cx, cy, az], m45, 0xf472b6));
+    glassGroup.add(arrow([cx, cy, az], m45, 0xf472b6));
     const dotC = new THREE.Mesh(new THREE.SphereGeometry(1.8, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf472b6 }));
-    dotC.position.set(cx, cy, az); group.add(dotC);
+    dotC.position.set(cx, cy, az); glassGroup.add(dotC);
   }
   // bezelWidth：右边缘中点，沿表面过渡带
-  group.add(dimension([hx - bezel, 0, thick + 10], [hx, 0, thick + 10], 0x22d3ee));    // bezelWidth 青色
-  group.add(lineObj([[hx, 0, 0], [hx, 0, thick + 10]], 0x78716c, true));
-  group.add(lineObj([[hx - bezel, 0, thick], [hx - bezel, 0, thick + 10]], 0x78716c, true));
+  glassGroup.add(dimension([hx - bezel, 0, thick + 10], [hx, 0, thick + 10], 0x22d3ee));    // bezelWidth 青色
+  glassGroup.add(lineObj([[hx, 0, 0], [hx, 0, thick + 10]], 0x78716c, true));
+  glassGroup.add(lineObj([[hx - bezel, 0, thick], [hx - bezel, 0, thick + 10]], 0x78716c, true));
   // thickness：左侧竖直尺寸线
-  group.add(dimension([-hx - 30, hy * 0.4, 0], [-hx - 30, hy * 0.4, thick], 0xc084fc)); // thickness 紫色
+  glassGroup.add(dimension([-hx - 30, hy * 0.4, 0], [-hx - 30, hy * 0.4, thick], 0xc084fc)); // thickness 紫色
+  }
 
-  return { cz: thick / 2, size: Math.max(P.width, P.height, thick * 2, 120) };
+  if (previewMode) {
+    glassGroup.position.set(textureState.glassOffset.x, textureState.glassOffset.y, 0);
+    group.add(glassGroup);
+    syncVizTextureState();
+  }
+  return { cz: thick / 2, size: previewMode ? Math.max(textureState.imagePlaneSize.x, textureState.imagePlaneSize.y, P.width, P.height, 120) : Math.max(P.width, P.height, thick * 2, 120), force: false };
 }
 
 /* ============ UI、切换与渲染循环 ============ */
 const controlsBox = document.getElementById('controls');
+const effectBox = document.getElementById('controlsEffect');
+// 模糊开关（blurEnabled）放在着色/模糊分组顶部
+const blurToggleRow = document.createElement('label');
+blurToggleRow.className = 'toggle-row';
+blurToggleRow.style.margin = '0 0 10px';
+blurToggleRow.innerHTML = '<input id="blurEnabled" type="checkbox"> 启用背景模糊（DConfig blurEnabled，关闭后玻璃内只做折射不着色模糊）';
+effectBox.appendChild(blurToggleRow);
+const blurEnabledInput = blurToggleRow.querySelector('input');
+blurEnabledInput.checked = effectState.blurEnabled;
+blurEnabledInput.addEventListener('change', ev => {
+  effectState.blurEnabled = ev.target.checked;
+  syncVizTextureState();
+  rebuild();
+  saveAppState();
+});
 for (const [key, o] of Object.entries(PARAMS)) {
   const div = document.createElement('div');
   div.className = 'param';
@@ -684,27 +1220,94 @@ for (const [key, o] of Object.entries(PARAMS)) {
     o.v = parseFloat(input.value);
     val.textContent = o.v;
     rebuild();
+    saveAppState();
   });
-  controlsBox.appendChild(div);
+  (o.group === 'effect' ? effectBox : controlsBox).appendChild(div);
 }
+
+document.getElementById('textureUpload').addEventListener('change', ev => {
+  const file = ev.target.files?.[0];
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = String(reader.result || '');
+    if (!dataUrl) return;
+    try { localStorage.setItem(STORAGE_WALLPAPER_KEY, dataUrl); } catch (err) { console.warn('Failed to save wallpaper:', err); }
+    new THREE.TextureLoader().load(dataUrl, tex => { setImageTexture(tex, true); saveAppState(); });
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('clearGlass').checked = textureState.clearGlass;
+document.getElementById('clearGlass').addEventListener('change', ev => {
+  textureState.clearGlass = ev.target.checked;
+  syncVizTextureState();
+  rebuild();
+  saveAppState();
+});
+document.getElementById('resetParams').addEventListener('click', resetParams);
+document.getElementById('clearWallpaper').addEventListener('click', clearWallpaper);
+// 边栏折叠 / 展开
+const infoBar = document.getElementById('infoBar');
+const paramBar = document.getElementById('paramBar');
+const reopenInfo = document.getElementById('reopenInfo');
+const reopenParam = document.getElementById('reopenParam');
+function setInfoCollapsed(c) { infoBar.classList.toggle('collapsed', c); reopenInfo.style.display = c ? 'block' : 'none'; onResize(); }
+function setParamCollapsed(c) { paramBar.classList.toggle('collapsed', c); reopenParam.style.display = c ? 'block' : 'none'; onResize(); }
+document.getElementById('collapseInfo').addEventListener('click', () => setInfoCollapsed(true));
+document.getElementById('collapseParam').addEventListener('click', () => setParamCollapsed(true));
+reopenInfo.addEventListener('click', () => setInfoCollapsed(false));
+reopenParam.addEventListener('click', () => setParamCollapsed(false));
 
 function disposeGroup(g) {
   g.traverse(o => {
     if (o.geometry) o.geometry.dispose();
     if (o.material) {
       const ms = Array.isArray(o.material) ? o.material : [o.material];
-      ms.forEach(mm => { if (mm.map) mm.map.dispose(); mm.dispose(); });
+      ms.forEach(mm => { if (mm.map && mm.map !== textureState.imageTexture) mm.map.dispose(); mm.dispose(); });
     }
   });
 }
 
 const readout = document.getElementById('readout');
+const angleHud = document.getElementById('angleHud');
+
+function viewBFitSize() {
+  const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+  return textureState.textureLoaded
+    ? Math.max(textureState.imagePlaneSize.x, textureState.imagePlaneSize.y, P.width, P.height, 120)
+    : Math.max(P.width, P.height, P.thickness * 2, 120);
+}
+
+function resetViewBFront() {
+  const size = viewBFitSize();
+  viewB.controls.target.set(0, 0, 0);
+  viewB.camera.position.set(0, 0, size * 1.35);
+  viewB.camera.up.set(0, 1, 0);
+  viewB.controls.update();
+  viewB.fitted = true;
+  updateAngleHud();
+}
+
+function updateAngleHud() {
+  if (activeName !== 'B') {
+    angleHud.style.display = 'none';
+    return;
+  }
+  const offset = viewB.camera.position.clone().sub(viewB.controls.target);
+  const yaw = Math.atan2(offset.x, offset.z) * 180 / Math.PI;
+  const pitch = Math.atan2(offset.y, Math.hypot(offset.x, offset.z)) * 180 / Math.PI;
+  angleHud.style.display = 'block';
+  angleHud.textContent = `旋转角度\n水平 ${yaw.toFixed(1)}°\n俯仰 ${pitch.toFixed(1)}°\n双击重置正面`;
+}
+window.__viz.resetViewBFront = resetViewBFront;
+
 function rebuildView(view, builder, fitCamera) {
   if (view.group) { view.scene.remove(view.group); disposeGroup(view.group); }
   view.group = new THREE.Group();
   const fit = builder(view.group);
   view.scene.add(view.group);
-  if (!view.fitted) { view.fitted = true; fitCamera(view, fit); }
+  if (!view.fitted || fit.force) { view.fitted = true; fitCamera(view, fit); }
 }
 
 function rebuild() {
@@ -713,8 +1316,16 @@ function rebuild() {
     v.camera.position.set(f.cx + f.size * 0.45, (f.cy ?? 0) - f.size * 0.95, f.cz + f.size * 0.62);
   });
   rebuildView(viewB, buildViewB, (v, f) => {
-    v.controls.target.set(0, 0, f.cz);
-    v.camera.position.set(f.size * 0.8, -f.size * 1.0, f.size * 0.75);
+    if (textureState.textureLoaded) {
+      v.controls.enabled = true;
+      v.controls.target.set(0, 0, 0);
+      v.camera.position.set(0, 0, f.size * 1.35);
+      v.camera.up.set(0, 1, 0);
+    } else {
+      v.controls.enabled = true;
+      v.controls.target.set(0, 0, f.cz);
+      v.camera.position.set(f.size * 0.8, -f.size * 1.0, f.size * 0.75);
+    }
   });
   readout.textContent = readoutTextA;
 }
@@ -731,6 +1342,62 @@ function switchTab(name) {
 document.getElementById('tabA').addEventListener('click', () => switchTab('A'));
 document.getElementById('tabB').addEventListener('click', () => switchTab('B'));
 
+const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const dragRaycaster = new THREE.Raycaster();
+const dragNdc = new THREE.Vector2();
+function pointerToDragPlane(ev) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  dragNdc.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -(((ev.clientY - rect.top) / rect.height) * 2 - 1));
+  dragRaycaster.setFromCamera(dragNdc, viewB.camera);
+  const out = new THREE.Vector3();
+  return dragRaycaster.ray.intersectPlane(dragPlane, out) ? out : null;
+}
+function pointHitsGlass(p) {
+  if (!textureState.textureLoaded) return false;
+  const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
+  const x = p.x - textureState.glassOffset.x;
+  const y = p.y - textureState.glassOffset.y;
+  return sdRoundedRect(x, y, P.width / 2, P.height / 2, P.radius) <= 0;
+}
+window.__viz.pointHitsGlass = pointHitsGlass;
+
+renderer.domElement.addEventListener('pointerdown', ev => {
+  if (activeName !== 'B' || !textureState.dragEnabled) return;
+  const p = pointerToDragPlane(ev);
+  if (!p || !pointHitsGlass(p)) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
+  textureState.dragging = true;
+  textureState.dragStartPoint.copy(p);
+  textureState.dragStartOffset.copy(textureState.glassOffset);
+}, true);
+renderer.domElement.addEventListener('pointermove', ev => {
+  if (!textureState.dragging) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
+  const p = pointerToDragPlane(ev);
+  if (!p) return;
+  textureState.glassOffset.copy(textureState.dragStartOffset).add(new THREE.Vector2(p.x - textureState.dragStartPoint.x, p.y - textureState.dragStartPoint.y));
+  syncVizTextureState();
+  rebuild();
+}, true);
+renderer.domElement.addEventListener('pointerup', ev => {
+  if (textureState.dragging) {
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    textureState.dragging = false;
+    saveAppState();
+  }
+}, true);
+renderer.domElement.addEventListener('pointercancel', () => {
+  textureState.dragging = false;
+}, true);
+renderer.domElement.addEventListener('dblclick', ev => {
+  if (activeName !== 'B') return;
+  ev.preventDefault();
+  resetViewBFront();
+});
+
 function onResize() {
   const w = viewport.clientWidth, h = viewport.clientHeight;
   renderer.setSize(w, h);
@@ -740,8 +1407,10 @@ window.addEventListener('resize', onResize);
 onResize();
 switchTab('A');
 rebuild();
+restoreSavedWallpaper();
 renderer.setAnimationLoop(() => {
   active.controls.update();
+  updateAngleHud();
   renderer.render(active.scene, active.camera);
 });
 </script>

@@ -79,6 +79,48 @@
 - UI：左侧 3D 视图，右侧参数面板（滑条 + 数值 + 说明文字）
 - 两个视图可切换（Tab）或并排（宽屏）
 
+
+## 视图 B：底部贴图折射
+
+### 目标
+
+视图 B 支持上传一张图片作为玻璃背后的固定内容。上传后，玻璃像 Treeland 中的 glass 一样覆盖在图片上：改变玻璃大小只改变玻璃窗口，不缩放图片；拖动玻璃会改变它在图片上的采样位置。
+
+### UI
+
+- 侧栏提供 `上传底部贴图` 区域。
+- `<input type="file" accept="image/*">` 只接受图片。
+- 未上传图片时保留当前可旋转 3D 玻璃几何视图。
+- 上传图片后切换到正面预览模式：相机面向屏幕，禁用 3D 旋转，用鼠标拖动玻璃在图片上移动。
+- 背景图片采用 contain 居中显示，图片可以比玻璃大。
+
+### 场景结构
+
+- `imageBackdrop`：固定背景图片平面，独立于玻璃尺寸。
+- `refractedImageMesh`：与玻璃轮廓一致的折射采样层，采样固定背景图片坐标。
+- `glassOffset`：玻璃相对图片中心的 2D 偏移，拖动时更新。
+- 现有参数滑条保持可用；图片模式下尺寸线和部分 3D 标注可隐藏，避免遮挡预览。
+
+### 折射模型
+
+- 片元坐标先转换为背景图片坐标：`bgCoord = glassOffset + localGlassCoord`。
+- 用 rounded-rect SDF 近似 2D 外法线方向。
+- 用 `t`、`profilePower`、`thickness/bezelWidth` 计算表面斜率。
+- 用 `ior` 和 Snell 关系计算 `tanθt`。
+- 用 shader 公式近似位移：
+  `magG = H·contentRamp·max(slopeMag−tanθt, 0)`。
+- `contentRamp = mix(contentEdgePull, 1, smoothstep(0, contentRampEnd, t))`。
+- `refractionMaxTan` 截断 `slopeMag`。
+- 最终采样：`sampleCoord = bgCoord + n2·magG`，再按固定 `imagePlaneSize` 转成 UV。
+
+### 验证
+
+- 浏览器测试生成一张临时 PNG 并上传。
+- 上传后检查 `window.__viz.textureLoaded === true`、`dragEnabled === true`、`OrbitControls.enabled === false`。
+- 改 `width/height` 后检查 `imagePlaneSize` 不变，证明图片不随玻璃缩放。
+- 模拟拖动后检查 `glassOffset` 改变。
+- 截图确认上传图片固定在背景上，玻璃正面覆盖其上，边缘区域出现折射拉伸。
+
 ## 文件
 
 - `docs/superpowers/specs/2026-07-23-liquid-glass-visualizer-design.md` — 本文档
