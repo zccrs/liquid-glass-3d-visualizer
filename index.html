@@ -220,7 +220,7 @@ const PARAMS = {
   profilePower:     { v: 4,   min: 1,   max: 8,   step: 0.1,  views: 'A+B', desc: '剖面曲线指数 p：h = (1−(1−t)^p)^(1/p)。shader 固定 p=4（squircle），p=2 为圆弧，p 越大边缘越陡。【可视化扩展参数】' },
   cornerField:      { v: 0,   min: 0,   max: 2,   step: 1,    views: 'A+B', desc: '角区 t 场策略：0=自动（radius <= bezelWidth 时用 smooth 角区场，避免 shader 平台折痕）；1=强制当前 shader；2=强制双边平滑。' },
   ior:              { v: 1.5, min: 1.0, max: 3.0, step: 0.01, views: 'A+B', desc: '折射率。Snell 定律 sinθt = sinθi / ior。1.5 ≈ 普通玻璃；视图 B 中会改变底部贴图折射强度。' },
-  refractionMaxTan: { v: 2.75,min: 0.1, max: 8,   step: 0.05, views: 'A+B', desc: '几何斜率 tanθi 的上限。视图 A 看曲线；视图 B 中限制底部贴图位移，避免边缘尖刺。' },
+  refractionMaxTan: { v: 2.75,min: 0.1, max: 20,  step: 0.05, views: 'A+B', desc: '几何斜率 tanθi 的上限。视图 A 看曲线；视图 B 中限制底部贴图位移，避免边缘尖刺。' },
   contentEdgePull:  { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '唇边保留的拉拽比例 (0–1)，即 t=0 处 contentRamp 的下限。视图 B 中影响贴图靠边处的位移。' },
   contentRampEnd:   { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '拉拽在 bezel 内达到满值的 t（shader 内 clamp 到 ≥0.05）。视图 B 中影响贴图折射从边缘到内侧的过渡。' },
   skirt:            { v: 0,   min: 0,   max: 100, step: 1,    views: 'A+B', desc: '侧壁裙边厚度（px）。0 表示只画顶面薄片，无侧壁与底面，玻璃更贴近真实薄片材质。' },
