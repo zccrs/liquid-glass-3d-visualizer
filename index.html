@@ -687,8 +687,12 @@ function makeRefractedMaterial(P, hx, hy, tex) {
         float maxDisp = min(min(bezelWidth * 0.85, thickness * 0.75), 48.0);
         float magG = min(thickness * h * ramp * max(slopeMag - tanT, 0.0), maxDisp);
         vec2 duv = sdfNormal(vLocal) * magG / imagePlaneSize;
-        vec4 color = texture2D(map, clamp(uv + duv, vec2(0.001), vec2(0.999)));
-        gl_FragColor = vec4(color.rgb, 0.82);
+        vec2 sampleUv = uv + duv;
+        float insideX = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0);
+        float insideY = step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
+        float insideImage = insideX * insideY;
+        vec4 color = texture2D(map, clamp(sampleUv, vec2(0.001), vec2(0.999)));
+        gl_FragColor = vec4(color.rgb, 0.82 * insideImage);
       }
     `,
   });
@@ -929,7 +933,6 @@ renderer.domElement.addEventListener('pointerdown', ev => {
   textureState.dragging = true;
   textureState.dragStartPoint.copy(p);
   textureState.dragStartOffset.copy(textureState.glassOffset);
-  renderer.domElement.setPointerCapture(ev.pointerId);
 });
 renderer.domElement.addEventListener('pointermove', ev => {
   if (!textureState.dragging) return;
@@ -941,7 +944,6 @@ renderer.domElement.addEventListener('pointermove', ev => {
 });
 renderer.domElement.addEventListener('pointerup', ev => {
   textureState.dragging = false;
-  if (renderer.domElement.hasPointerCapture(ev.pointerId)) renderer.domElement.releasePointerCapture(ev.pointerId);
 });
 
 function onResize() {
