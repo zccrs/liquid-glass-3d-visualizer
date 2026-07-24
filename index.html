@@ -1253,6 +1253,7 @@ function buildViewB(group) {
   if (previewMode) {
     glassGroup.position.set(textureState.glassOffset.x, textureState.glassOffset.y, 0);
     group.add(glassGroup);
+    viewB.glassGroup = glassGroup;
     syncVizTextureState();
   }
   return { cz: thick / 2, size: previewMode ? Math.max(textureState.imagePlaneSize.x, textureState.imagePlaneSize.y, P.width, P.height, 120) : Math.max(P.width, P.height, thick * 2, 120), force: false };
@@ -1476,16 +1477,10 @@ renderer.domElement.addEventListener('pointermove', ev => {
   const p = pointerToDragPlane(ev);
   if (!p) return;
   textureState.glassOffset.copy(textureState.dragStartOffset).add(new THREE.Vector2(p.x - textureState.dragStartPoint.x, p.y - textureState.dragStartPoint.y));
-  syncVizTextureState();
-  // 只更新位置和 uniform，不重建几何（rebuild 会重建 57601 顶点网格，太重）
-  if (viewB.group) {
-    viewB.group.position.set(textureState.glassOffset.x, textureState.glassOffset.y, 0);
-    const mat = viewB.refractedMesh?.material;
-    if (mat?.uniforms?.glassOffset) mat.uniforms.glassOffset.value.copy(textureState.glassOffset);
-    const tm = viewB.topMesh?.material;
-    if (tm?.uniforms?.glassOffset) tm.uniforms.glassOffset.value.copy(textureState.glassOffset);
-    const sm = viewB.group.children.find(c => c.material?.uniforms?.glassOffset);
-    if (sm?.material?.uniforms?.glassOffset) sm.material.uniforms.glassOffset.value.copy(textureState.glassOffset);
+  // 只移动玻璃组（glassGroup），不移动 group（group 还包含 backdrop 背景图）
+  if (viewB.glassGroup) {
+    viewB.glassGroup.position.set(textureState.glassOffset.x, textureState.glassOffset.y, 0);
+    viewB.glassGroup.traverse(o => { if (o.material?.uniforms?.glassOffset) o.material.uniforms.glassOffset.value.copy(textureState.glassOffset); });
   }
   requestRender();
 }, true);
