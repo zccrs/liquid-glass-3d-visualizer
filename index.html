@@ -936,7 +936,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float insideY = step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
         float insideImage = insideX * insideY;
         // 背景已由 buildProcessedTexture() 预渲染模糊+颜色调节，这里只做折射位移采样
-        vec3 color = pow(texture2D(map, clamp(sampleUv, vec2(0.001), vec2(0.999))).rgb, vec3(2.2)); // sRGB→linear，与 backdrop MeshBasicMaterial 一致
+        vec3 color = texture2D(map, clamp(sampleUv, vec2(0.001), vec2(0.999))).rgb; // ShaderMaterial 不自动 colorSpace 转换，raw sRGB passthrough 与 backdrop 一致
         // 镜面高光（与 liquidglass.frag specular 分支一致）
         if (specular > 1e-4) {
           float rr = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
