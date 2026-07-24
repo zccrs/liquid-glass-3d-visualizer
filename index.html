@@ -463,12 +463,17 @@ function debugRefractionAt(px, py) {
   const n = fieldNormal(px, py, hx, hy, P.radius, P.bezelWidth, mode).n2;
   const [h, deriv] = surfaceProfile(f.t, P.profilePower);
   const rawTan = deriv * (P.thickness / Math.max(f.bezel, 1));
-  const slopeMag = Math.min(rawTan, Math.max(P.refractionMaxTan, 0.1));
+  const sd = sdRoundedRect(px, py, hx, hy, P.radius);
+  const distFromEdge = -sd;
+  const outerSoft = THREE.MathUtils.smoothstep(distFromEdge, 0, 2.5);
+  const edgePull = clamp(P.contentEdgePull, 0, 1);
+  const slopeSoft = THREE.MathUtils.lerp(outerSoft, 1, edgePull);
+  const slopeMag = Math.min(rawTan, Math.max(P.refractionMaxTan, 0.1)) * slopeSoft;
   const sinI = slopeMag / Math.hypot(slopeMag, 1);
   const sinT = Math.min(sinI / Math.max(P.ior, 1.0001), 0.999);
   const tanT = sinT / Math.sqrt(Math.max(1 - sinT * sinT, 1e-4));
   const rampEnd = Math.max(P.contentRampEnd, 1e-4);
-  const ramp = clamp(P.contentEdgePull, 0, 1) + (1 - clamp(P.contentEdgePull, 0, 1)) * THREE.MathUtils.smoothstep(f.t, 0, rampEnd);
+  const ramp = edgePull + (1 - edgePull) * THREE.MathUtils.smoothstep(f.t, 0, rampEnd);
   const maxDisp = Math.min(Math.min(f.bezel * 0.85, P.thickness * 0.75), 48);
   const raw = P.thickness * h * ramp * Math.max(slopeMag - tanT, 0);
   const magG = Math.min(raw, maxDisp);
@@ -920,8 +925,10 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float distFromEdge0 = -sd;
         // Anti-aliased shape edge (与 Treeland shapeAlpha 一致)
         float shapeAlpha = smoothstep(2.0, -2.0, sd);
-        // outerSoft：防止轮廓处折射尖峰 (与 Treeland outerSoft 一致)
+        // outerSoft：防止轮廓处折射尖峰；contentEdgePull 抬高 softening 下限
         float outerSoft = smoothstep(0.0, 2.5, distFromEdge0);
+        float edgePull = clamp(contentEdgePull, 0.0, 1.0);
+        float slopeSoft = mix(outerSoft, 1.0, edgePull);
         float t = fieldT(vLocal);
         float s = 1.0 - t;
         float p = max(profilePower, 1.0);
@@ -929,12 +936,12 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float h = pow(inside, 1.0 / p);
         float deriv = pow(s, p - 1.0) * h / inside;
         float rawTan = deriv * (thickness / max(bezelWidth, 1.0));
-        float slopeMag = min(rawTan, max(refractionMaxTan, 0.1)) * outerSoft;
+        float slopeMag = min(rawTan, max(refractionMaxTan, 0.1)) * slopeSoft;
         float sinI = slopeMag / sqrt(1.0 + slopeMag * slopeMag);
         float sinT = clamp(sinI / max(ior, 1.0001), 0.0, 0.999);
         float tanT = sinT / sqrt(max(1.0 - sinT * sinT, 1e-4));
         float rampEnd = max(contentRampEnd, 1e-4);
-        float ramp = mix(contentEdgePull, 1.0, smoothstep(0.0, rampEnd, t));
+        float ramp = mix(edgePull, 1.0, smoothstep(0.0, rampEnd, t));
         float maxDisp = min(min(bezelWidth * 0.85, thickness * 0.75), 48.0);
         float magG = min(thickness * h * ramp * max(slopeMag - tanT, 0.0), maxDisp);
         vec2 n2 = fieldNormal(vLocal);          // 外法线
