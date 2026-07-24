@@ -233,6 +233,7 @@ const STORAGE_WALLPAPER_KEY = 'liquidGlassViz.wallpaper.v1';
 
 function setImageTexture(texture, loaded, resetOffset = true) {
   if (textureState.textureLoaded && textureState.imageTexture) textureState.imageTexture.dispose();
+  disposeBlurCanvas();
   textureState.imageTexture = loaded ? configureImageTexture(texture) : null;
   textureState.textureLoaded = loaded;
   textureState.dragEnabled = loaded;
@@ -301,6 +302,7 @@ function resetParams() {
 function clearWallpaper() {
   localStorage.removeItem(STORAGE_WALLPAPER_KEY);
   if (textureState.textureLoaded && textureState.imageTexture) textureState.imageTexture.dispose();
+  disposeBlurCanvas();
   textureState.imageTexture = null;
   textureState.textureLoaded = false;
   textureState.dragEnabled = false;
@@ -484,6 +486,24 @@ function makeScene() {
 const viewA = makeScene(), viewB = makeScene();
 window.__viz = { viewA, viewB, textureLoaded: false, debugRefractionAt }; // 调试句柄
 let active = viewA, activeName = 'A';
+// 按需渲染：静止时停止 rAF，降低 GPU 占用；交互/damping 期间持续渲染。
+let renderDirty = true;          // 初始渲染一次
+let rafHandle = null;
+function requestRender() { renderDirty = true; ensureRAF(); }
+window.__viz.requestRender = requestRender;
+window.__viz.isRAFIdle = () => rafHandle == null;
+function ensureRAF() { if (rafHandle == null) rafHandle = requestAnimationFrame(frameLoop); }
+function frameLoop() {
+  rafHandle = null;
+  if (!renderDirty) return;      // 无变化则停帧
+  renderDirty = false;
+  active.controls.update();      // damping 会触发后续 change 事件 → 再次 requestRender
+  updateAngleHud();
+  renderer.render(active.scene, active.camera);
+  // damping 仍可能产生后续帧；change 事件会重新 ensureRAF
+}
+viewA.controls.addEventListener('change', () => { if (active === viewA) requestRender(); });
+viewB.controls.addEventListener('change', () => { if (active === viewB) requestRender(); });
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -819,13 +839,6 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
       cornerMode: { value: mode },
       specular: { value: P.specular },
       tint: { value: P.tint },
-      brightness: { value: P.brightness },
-      contrast: { value: P.contrast },
-      saturation: { value: P.saturation },
-      blurAmount: { value: P.blurAmount },
-      blurMax: { value: P.blurMax },
-      blurMultiplier: { value: P.blurMultiplier },
-      blurEnabled: { value: effectState.blurEnabled ? 1 : 0 },
       lightDirection: { value: new THREE.Vector2(0.5, -0.7) },
     },
     vertexShader: `
@@ -839,8 +852,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
       precision highp float;
       uniform sampler2D map;
       uniform vec2 halfSize, imagePlaneSize, glassOffset, lightDirection;
-      uniform float radius, bezelWidth, thickness, ior, refractionMaxTan, contentEdgePull, contentRampEnd, profilePower, cornerMode;
-      uniform float specular, tint, brightness, contrast, saturation, blurAmount, blurMax, blurMultiplier, blurEnabled;
+      uniform float radius, bezelWidth, thickness, ior, refractionMaxTan, contentEdgePull, contentRampEnd, profilePower, cornerMode, specular, tint;
       varying vec2 vLocal;
       float sdRound(vec2 p, vec2 b, float r) {
         vec2 q = abs(p) - (b - vec2(r));
@@ -888,32 +900,6 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         vec2 g = vec2(dx, dy);
         return normalize(-g + vec2(1e-5)); // 外法线 n2（与 liquidglass.frag 一致）
       }
-      // Qt MultiEffect 颜色调节（折射前应用于背景采样）
-      vec3 adjustColor(vec3 c) {
-        c = c + brightness;
-        c = (c - 0.5) * (1.0 + contrast) + 0.5;
-        float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-        c = mix(vec3(luma), c, 1.0 + saturation);
-        return clamp(c, 0.0, 1.0);
-      }
-      // 3×3 高斯模糊（单 pass 近似 Qt MultiEffect backdrop blur）
-      vec3 sampleProcessed(vec2 uv) {
-        float radiusPx = blurEnabled > 0.5 ? blurAmount * blurMax * (1.0 + blurMultiplier) : 0.0;
-        vec2 clamped = clamp(uv, vec2(0.001), vec2(0.999));
-        if (radiusPx < 0.5) return adjustColor(texture2D(map, clamped).rgb);
-        vec2 d = vec2(radiusPx) / max(imagePlaneSize, vec2(1.0));
-        vec3 sum = vec3(0.0);
-        sum += adjustColor(texture2D(map, clamp(uv + vec2(-1.0, -1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
-        sum += adjustColor(texture2D(map, clamp(uv + vec2( 0.0, -1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
-        sum += adjustColor(texture2D(map, clamp(uv + vec2( 1.0, -1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
-        sum += adjustColor(texture2D(map, clamp(uv + vec2(-1.0,  0.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
-        sum += adjustColor(texture2D(map, clamped).rgb) * 4.0;
-        sum += adjustColor(texture2D(map, clamp(uv + vec2( 1.0,  0.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
-        sum += adjustColor(texture2D(map, clamp(uv + vec2(-1.0,  1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
-        sum += adjustColor(texture2D(map, clamp(uv + vec2( 0.0,  1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 2.0;
-        sum += adjustColor(texture2D(map, clamp(uv + vec2( 1.0,  1.0) * d, vec2(0.001), vec2(0.999))).rgb) * 1.0;
-        return sum / 16.0;
-      }
       void main() {
         vec2 uv = (glassOffset + vLocal) / imagePlaneSize + 0.5;
         float t = fieldT(vLocal);
@@ -937,7 +923,8 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float insideX = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0);
         float insideY = step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
         float insideImage = insideX * insideY;
-        vec3 color = sampleProcessed(sampleUv);
+        // 背景已由 buildProcessedTexture() 预渲染模糊+颜色调节，这里只做折射位移采样
+        vec3 color = texture2D(map, clamp(sampleUv, vec2(0.001), vec2(0.999))).rgb;
         // 镜面高光（与 liquidglass.frag specular 分支一致）
         if (specular > 1e-4) {
           float rr = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
@@ -1054,6 +1041,60 @@ function makeSideMaskMaterial() {
   });
 }
 
+/* ============ 背景预处理：Canvas2D 原生 filter（blur + 颜色调节），再转为纹理 ============
+   浏览器原生 ctx.filter='blur(Npx)' 是 GPU 加速的高质量高斯模糊，远优于手写两遍 RT，
+   也避免了单 pass 9-tap 造成的残影叠加。颜色调节用 CSS filter 函数一并应用。 */
+let blurCanvas = null, blurCtx = null, blurTexture = null;
+function disposeBlurCanvas() {
+  if (blurTexture) { blurTexture.dispose(); blurTexture = null; }
+  blurCanvas = null; blurCtx = null;
+}
+function isBlurTexture(t) { return !!(t && t === blurTexture); }
+
+// 返回经过模糊+颜色调节的背景纹理（折射 shader 直接采样它）。无任何效果时返回原图。
+function buildProcessedTexture(P) {
+  const tex = textureState.imageTexture;
+  if (!tex || !tex.image) return null;
+  const img = tex.image;
+  const iw = Math.max(2, Math.round(textureState.imagePlaneSize.x));
+  const ih = Math.max(2, Math.round(textureState.imagePlaneSize.y));
+  const maxDim = 1024;
+  const sc = Math.min(1, maxDim / Math.max(iw, ih));
+  const w = Math.max(2, Math.round(iw * sc)), h = Math.max(2, Math.round(ih * sc));
+  const radiusPx = effectState.blurEnabled ? P.blurAmount * P.blurMax * (1 + P.blurMultiplier) : 0;
+  const doBlur = radiusPx >= 0.5;
+  const doColor = (P.brightness !== 0 || P.contrast !== 0 || P.saturation !== 0);
+  // 无模糊且无颜色调节 → 直接用原图，省去 canvas 处理
+  if (!doBlur && !doColor) return tex;
+  if (!blurCanvas || blurCanvas.width !== w || blurCanvas.height !== h) {
+    disposeBlurCanvas();
+    blurCanvas = document.createElement('canvas');
+    blurCanvas.width = w; blurCanvas.height = h;
+    blurCtx = blurCanvas.getContext('2d');
+  }
+  // 组合 CSS filter：blur + brightness/contrast/saturate（与 Qt MultiEffect 顺序一致）
+  const parts = [];
+  if (doBlur) parts.push(`blur(${radiusPx.toFixed(2)}px)`);
+  if (P.brightness !== 0) parts.push(`brightness(${(1 + P.brightness).toFixed(3)})`);
+  if (P.contrast !== 0) parts.push(`contrast(${(1 + P.contrast).toFixed(3)})`);
+  if (P.saturation !== 0) parts.push(`saturate(${(1 + P.saturation).toFixed(3)})`);
+  blurCtx.clearRect(0, 0, w, h);
+  blurCtx.filter = parts.length ? parts.join(' ') : 'none';
+  // drawImage 会按当前 filter 渲染；原图尺寸为 img.naturalWidth/Height，缩放到 w×h
+  blurCtx.drawImage(img, 0, 0, w, h);
+  blurCtx.filter = 'none';
+  if (!blurTexture) {
+    blurTexture = new THREE.CanvasTexture(blurCanvas);
+    blurTexture.colorSpace = THREE.SRGBColorSpace;
+    blurTexture.wrapS = blurTexture.wrapT = THREE.ClampToEdgeWrapping;
+    blurTexture.minFilter = THREE.LinearFilter;
+    blurTexture.magFilter = THREE.LinearFilter;
+  } else {
+    blurTexture.needsUpdate = true;
+  }
+  return blurTexture;
+}
+
 function buildViewB(group) {
   const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
   const hx = P.width / 2, hy = P.height / 2;
@@ -1118,7 +1159,8 @@ function buildViewB(group) {
     const rp = rg.attributes.position.array;
     for (let i = 2; i < rp.length; i += 3) rp[i] -= 0.6;
     rg.attributes.position.needsUpdate = true;
-    const refracted = new THREE.Mesh(rg, makeRefractedMaterial(P, hx, hy, textureState.imageTexture, mode));
+    const processed = buildProcessedTexture(P);
+    const refracted = new THREE.Mesh(rg, makeRefractedMaterial(P, hx, hy, processed || textureState.imageTexture, mode));
     refracted.renderOrder = 1;
     glassGroup.add(refracted);
     viewB.refractedMesh = refracted;
@@ -1264,7 +1306,7 @@ function disposeGroup(g) {
     if (o.geometry) o.geometry.dispose();
     if (o.material) {
       const ms = Array.isArray(o.material) ? o.material : [o.material];
-      ms.forEach(mm => { if (mm.map && mm.map !== textureState.imageTexture) mm.map.dispose(); mm.dispose(); });
+      ms.forEach(mm => { if (mm.map && mm.map !== textureState.imageTexture && !isBlurTexture(mm.map)) mm.map.dispose(); mm.dispose(); });
     }
   });
 }
@@ -1287,6 +1329,7 @@ function resetViewBFront() {
   viewB.controls.update();
   viewB.fitted = true;
   updateAngleHud();
+  requestRender();
 }
 
 function updateAngleHud() {
@@ -1328,6 +1371,7 @@ function rebuild() {
     }
   });
   readout.textContent = readoutTextA;
+  requestRender();
 }
 
 function switchTab(name) {
@@ -1338,6 +1382,7 @@ function switchTab(name) {
   readout.style.display = name === 'A' ? 'block' : 'none';
   document.getElementById('legendA').style.display = name === 'A' ? 'block' : 'none';
   document.getElementById('legendB').style.display = name === 'B' ? 'block' : 'none';
+  requestRender();
 }
 document.getElementById('tabA').addEventListener('click', () => switchTab('A'));
 document.getElementById('tabB').addEventListener('click', () => switchTab('B'));
@@ -1402,17 +1447,14 @@ function onResize() {
   const w = viewport.clientWidth, h = viewport.clientHeight;
   renderer.setSize(w, h);
   for (const v of [viewA, viewB]) { v.camera.aspect = w / h; v.camera.updateProjectionMatrix(); }
+  requestRender();
 }
 window.addEventListener('resize', onResize);
 onResize();
 switchTab('A');
 rebuild();
 restoreSavedWallpaper();
-renderer.setAnimationLoop(() => {
-  active.controls.update();
-  updateAngleHud();
-  renderer.render(active.scene, active.camera);
-});
+ensureRAF(); // 启动按需渲染循环（静止时自动停帧，降低 GPU 占用）
 </script>
 </body>
 </html>
