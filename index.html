@@ -47,6 +47,8 @@
   .upload-title { font-size: 13px; color: #f1f5f9; margin-bottom: 8px; font-weight: 600; }
   .upload-panel input { width: 100%; color: #b6c2d2; font-size: 12px; }
   .upload-desc { margin-top: 8px; font-size: 12px; color: #94a3b8; line-height: 1.5; }
+  .toggle-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 12px; color: #cbd5e1; line-height: 1.4; }
+  .toggle-row input { width: auto !important; accent-color: #2563eb; }
 </style>
 </head>
 <body>
@@ -92,6 +94,7 @@
       <div class="upload-title">上传底部贴图</div>
       <input id="textureUpload" type="file" accept="image/*">
       <div class="upload-desc">只作用于视图 B；上传后玻璃下方图片会按折射参数产生位移。</div>
+      <label class="toggle-row"><input id="clearGlass" type="checkbox"> 透明玻璃材质（无色，更接近 Treeland 实际效果）</label>
     </div>
     <div id="controls"></div>
     <div class="note">specular / tint / brightness / contrast / saturation / blur 仅影响着色，不改变几何与折射光路，故不在本工具中展示。<br><br>视图①为玻璃<b>右边缘的垂直剖面</b>（x = 距轮廓距离，z = 厚度方向）；视图②为完整圆角矩形玻璃体。</div>
@@ -133,6 +136,7 @@ const textureState = {
   dragging: false,
   dragStartPoint: new THREE.Vector3(),
   dragStartOffset: new THREE.Vector2(),
+  clearGlass: false,
 };
 
 function syncVizTextureState() {
@@ -141,6 +145,7 @@ function syncVizTextureState() {
   window.__viz.dragEnabled = textureState.dragEnabled;
   window.__viz.imagePlaneSize = { x: textureState.imagePlaneSize.x, y: textureState.imagePlaneSize.y };
   window.__viz.glassOffset = { x: textureState.glassOffset.x, y: textureState.glassOffset.y };
+  window.__viz.clearGlass = textureState.clearGlass;
 }
 
 function setImageTexture(texture, loaded) {
@@ -726,13 +731,13 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float ramp = mix(contentEdgePull, 1.0, smoothstep(0.0, rampEnd, t));
         float maxDisp = min(min(bezelWidth * 0.85, thickness * 0.75), 48.0);
         float magG = min(thickness * h * ramp * max(slopeMag - tanT, 0.0), maxDisp);
-        vec2 duv = fieldNormal(vLocal) * magG / imagePlaneSize;
+        vec2 duv = -fieldNormal(vLocal) * magG / imagePlaneSize; // 反向追踪：采样点在玻璃内侧（与 liquidglass.frag 的 inward*magG 一致）
         vec2 sampleUv = uv + duv;
         float insideX = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0);
         float insideY = step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
         float insideImage = insideX * insideY;
         vec4 color = texture2D(map, clamp(sampleUv, vec2(0.001), vec2(0.999)));
-        gl_FragColor = vec4(color.rgb, 0.82 * insideImage);
+        gl_FragColor = vec4(color.rgb, insideImage); // 玻璃像素完全替换背景，不与原图混合（与 liquidglass.frag 一致）
       }
     `,
   });
@@ -745,6 +750,7 @@ function makeGlassMaskMaterial() {
     uniforms: {
       imagePlaneSize: { value: textureState.imagePlaneSize.clone() },
       glassOffset: { value: textureState.glassOffset.clone() },
+      useTint: { value: textureState.clearGlass ? 0 : 1 },
     },
     vertexShader: `
       varying vec2 vLocal;
@@ -763,6 +769,7 @@ function makeGlassMaskMaterial() {
     fragmentShader: `
       precision highp float;
       uniform vec2 imagePlaneSize, glassOffset;
+      uniform float useTint;
       varying vec2 vLocal;
       varying vec3 vColor;
       varying vec3 vNormal;
@@ -777,7 +784,7 @@ function makeGlassMaskMaterial() {
         float mask = imageMask(vLocal);
         vec3 lightDir = normalize(vec3(0.35, 0.45, 0.8));
         float shade = 0.72 + 0.28 * max(dot(normalize(vNormal), lightDir), 0.0);
-        vec3 rgb = vColor * shade;
+        vec3 rgb = mix(vec3(1.0), vColor, useTint) * shade;
         gl_FragColor = vec4(rgb, 0.52 * mask + 0.08 * (1.0 - mask));
       }
     `,
@@ -792,6 +799,7 @@ function makeSideMaskMaterial() {
     depthWrite: false,
     uniforms: {
       imagePlaneSize: { value: textureState.imagePlaneSize.clone() },
+      useTint: { value: textureState.clearGlass ? 0 : 1 },
       glassOffset: { value: textureState.glassOffset.clone() },
     },
     vertexShader: `
@@ -806,6 +814,7 @@ function makeSideMaskMaterial() {
     fragmentShader: `
       precision highp float;
       uniform vec2 imagePlaneSize, glassOffset;
+      uniform float useTint;
       varying vec2 vLocal;
       varying vec3 vNormal;
       float imageMask(vec2 local) {
@@ -817,7 +826,7 @@ function makeSideMaskMaterial() {
       void main() {
         float mask = imageMask(vLocal);
         float shade = 0.78 + 0.22 * abs(normalize(vNormal).z);
-        vec3 rgb = vec3(0.42, 0.70, 0.92) * shade;
+        vec3 rgb = mix(vec3(1.0), vec3(0.42, 0.70, 0.92), useTint) * shade;
         gl_FragColor = vec4(rgb, 0.42 * mask + 0.04 * (1.0 - mask));
       }
     `,
@@ -901,6 +910,7 @@ function buildViewB(group) {
   }));
   topMesh.renderOrder = 2;
   glassGroup.add(topMesh);
+  viewB.topMesh = topMesh;
 
   /* --- 侧壁 + 底面（与顶面 t=0 环同高，无缝衔接） --- */
   const m = loop.length;
@@ -987,6 +997,12 @@ document.getElementById('textureUpload').addEventListener('change', ev => {
     URL.revokeObjectURL(url);
     setImageTexture(tex, true);
   });
+});
+
+document.getElementById('clearGlass').addEventListener('change', ev => {
+  textureState.clearGlass = ev.target.checked;
+  syncVizTextureState();
+  rebuild();
 });
 
 function disposeGroup(g) {
