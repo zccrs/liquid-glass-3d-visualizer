@@ -88,6 +88,12 @@
     background: #1a2332d9; color: #cbd5e1; font-family: "SF Mono", Consolas, monospace;
     font-size: 12px; line-height: 1.5; white-space: pre; display: none;
   }
+  #versionTag {
+    position: absolute; right: 12px; top: 12px; z-index: 10;
+    padding: 4px 9px; border: 1px solid #33415580; border-radius: 6px;
+    background: #1a2332d9; color: #64748b; font-family: "SF Mono", Consolas, monospace;
+    font-size: 11px; line-height: 1.4; pointer-events: none;
+  }
 </style>
 </head>
 <body>
@@ -129,6 +135,7 @@
       <button id="tabA" class="active">① 四分之一玻璃光路图</button>
       <button id="tabB">② 玻璃 3D 形状</button>
     </div>
+    <div id="versionTag">dev</div>
     <div id="readout"></div>
     <div id="angleHud"></div>
     <button id="reopenParam" class="reopen-btn" title="展开参数栏">⟩ 参数</button>

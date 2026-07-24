@@ -23,6 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Inject version tag
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          sed -i "s|<div id=\"versionTag\">dev</div>|<div id=\"versionTag\">$SHORT_SHA</div>|" index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
