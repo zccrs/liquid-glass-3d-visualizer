@@ -216,6 +216,7 @@ const PARAMS = {
   refractionMaxTan: { v: 2.75,min: 0.1, max: 8,   step: 0.05, views: 'A+B', desc: '几何斜率 tanθi 的上限。视图 A 看曲线；视图 B 中限制底部贴图位移，避免边缘尖刺。' },
   contentEdgePull:  { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '唇边保留的拉拽比例 (0–1)，即 t=0 处 contentRamp 的下限。视图 B 中影响贴图靠边处的位移。' },
   contentRampEnd:   { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '拉拽在 bezel 内达到满值的 t（shader 内 clamp 到 ≥0.05）。视图 B 中影响贴图折射从边缘到内侧的过渡。' },
+  skirt:            { v: 0,   min: 0,   max: 100, step: 1,    views: 'A+B', desc: '侧壁裙边厚度（px）。0 表示只画顶面薄片，无侧壁与底面，玻璃更贴近真实薄片材质。' },
   rayPos:           { v: 0.25,min: 0,   max: 1,   step: 0.005,views: 'A',   desc: '光线沿四分之一轮廓的位置：0=顶边中点，1=右边中点，中间经过圆角。' },
   rayT:             { v: 0.5, min: 0.02,max: 0.98,step: 0.01, views: 'A',   desc: '光线命中点位置 t：0 = 轮廓边缘，1 = 平坦区起点。移动它观察角区/直边的斜率与折射。' },
   // ---- 着色 / 模糊（对应 GlassEffect.qml + DConfig，仅视图 B 生效） ----
@@ -224,7 +225,7 @@ const PARAMS = {
   brightness:       { v: 0,   min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景亮度调节（DConfig glassBrightness，-1–1）。0 保持不变，Qt MultiEffect 在折射前应用。' },
   contrast:         { v: 0,   min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景对比度调节（DConfig glassContrast，-1–1）。0 保持不变。' },
   saturation:       { v: 0.04,min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景饱和度调节（DConfig glassSaturation，-1–1）。默认 0.04 轻微提升饱和度。' },
-  blurAmount:       { v: 0.6, min: 0,   max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '归一化模糊量（DConfig blurAmount，0–1）。0 关闭模糊贡献，默认 0.6 使用 60% 模糊强度。' },
+  blurAmount:       { v: 0.02,min: 0,   max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '归一化模糊量（DConfig blurAmount，0–1）。0 关闭模糊贡献，默认 0.02 极轻微模糊。' },
   blurMax:          { v: 60,  min: 0,   max: 128, step: 1,    views: 'B',   group: 'effect', desc: '最大模糊强度像素（DConfig blurStrength，0–128）。0 完全关闭模糊。' },
   blurMultiplier:   { v: 0,   min: 0,   max: 4,   step: 0.01, views: 'B',   group: 'effect', desc: '模糊半径扩展倍率（DConfig blurMultiplier，0–4）。0 用默认质量，值越大半径越大但质量降低。' },
 };
@@ -592,8 +593,8 @@ function buildViewA(group) {
   const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
   const hx = P.width / 2, hy = P.height / 2, thick = P.thickness;
   const mode = effectiveCornerMode(P, hx, hy);
+  const skirt = P.skirt;
   const { bezel } = fieldAt(0, 0, hx, hy, P.radius, P.bezelWidth, mode);
-  const skirt = Math.max(6, thick * 0.12);
   const h0 = surfaceProfile(0)[0];
   const qloop = quarterOutline(hx, hy, P.radius, 128);
 
@@ -644,7 +645,6 @@ function buildViewA(group) {
   })));
 
   /* --- 两个剖切立面：x=0 与 y=0 --- */
-  const cutMat = new THREE.MeshPhysicalMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.34, roughness: 0.16, metalness: 0, side: THREE.DoubleSide, depthWrite: false });
   const addCutFace = (axis) => {
     const N = 90, cp = [], ci = [], line = [];
     const maxU = axis === 'x' ? hx : hy;
@@ -652,19 +652,21 @@ function buildViewA(group) {
       const u = maxU * i / N;
       const x = axis === 'x' ? u : 0, y = axis === 'x' ? 0 : u;
       const z = surfaceProfile(fieldAt(x, y, hx, hy, P.radius, P.bezelWidth, mode).t)[0] * thick;
-      cp.push(x, y, z, x, y, -skirt);
       line.push([x, y, z + 0.3]);
+      if (skirt > 0) { cp.push(x, y, z, x, y, -skirt); }
     }
-    for (let i = 0; i < N; i++) { const a = i * 2; ci.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-    const cg = new THREE.BufferGeometry();
-    cg.setAttribute('position', new THREE.Float32BufferAttribute(cp, 3));
-    cg.setIndex(ci); cg.computeVertexNormals();
-    group.add(new THREE.Mesh(cg, cutMat));
+    if (skirt > 0) { for (let i = 0; i < N; i++) { const a = i * 2; ci.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      const cg = new THREE.BufferGeometry();
+      cg.setAttribute('position', new THREE.Float32BufferAttribute(cp, 3));
+      cg.setIndex(ci); cg.computeVertexNormals();
+      group.add(new THREE.Mesh(cg, cutMat));
+    }
     group.add(lineObj(line, 0x38bdf8));
   };
   addCutFace('x'); addCutFace('y');
 
-  /* --- 侧壁 + 底面 --- */
+  /* --- 侧壁 + 底面（skirt=0 时跳过） --- */
+  if (skirt > 0) {
   const sgp = [], sgi = [];
   for (const [x, y] of qloop) sgp.push(x, y, h0 * thick);
   for (const [x, y] of qloop) sgp.push(x, y, -skirt);
@@ -677,6 +679,7 @@ function buildViewA(group) {
   sg.setAttribute('position', new THREE.Float32BufferAttribute(sgp, 3));
   sg.setIndex(sgi); sg.computeVertexNormals();
   group.add(new THREE.Mesh(sg, new THREE.MeshPhysicalMaterial({ color: 0x7cc4e8, transparent: true, opacity: 0.52, roughness: 0.2, metalness: 0, side: THREE.DoubleSide })));
+  }
   group.add(lineObj(qloop.map(p => [p[0], p[1], h0 * thick + 0.4]), 0xe2e8f0));
 
   /* --- 角区折射光路 --- */
@@ -1102,8 +1105,8 @@ function buildViewB(group) {
   const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
   const hx = P.width / 2, hy = P.height / 2;
   const thick = P.thickness;
+  const skirt = P.skirt;
   const mode = effectiveCornerMode(P, hx, hy);
-  const skirt = Math.max(6, thick * 0.12);
   const previewMode = textureState.textureLoaded && textureState.imageTexture;
   const glassGroup = previewMode ? new THREE.Group() : group;
   if (previewMode) {
@@ -1177,7 +1180,8 @@ function buildViewB(group) {
   glassGroup.add(topMesh);
   viewB.topMesh = topMesh;
 
-  /* --- 侧壁 + 底面（与顶面 t=0 环同高，无缝衔接） --- */
+  /* --- 侧壁 + 底面（skirt=0 时跳过；与顶面 t=0 环同高，无缝衔接） --- */
+  if (skirt > 0) {
   const m = loop.length;
   const sp = [], si = [];
   for (let i = 0; i < m; i++) sp.push(loop[i][0], loop[i][1], h0 * thick);
@@ -1196,6 +1200,7 @@ function buildViewB(group) {
   glassGroup.add(new THREE.Mesh(sg, previewMode ? makeSideMaskMaterial() : new THREE.MeshPhysicalMaterial({
     color: 0x7cc4e8, transparent: true, opacity: 0.55, roughness: 0.2, metalness: 0, side: THREE.DoubleSide,
   })));
+  }
   // 轮廓线
   glassGroup.add(lineObj([...loop.map(p => [p[0], p[1], h0 * thick + 0.4]), [loop[0][0], loop[0][1], h0 * thick + 0.4]], 0xe2e8f0)); // 轮廓线：白
 
