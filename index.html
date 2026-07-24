@@ -644,6 +644,7 @@ function buildViewA(group) {
     clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide,
   })));
 
+  const cutMat = new THREE.MeshPhysicalMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.34, roughness: 0.16, metalness: 0, side: THREE.DoubleSide, depthWrite: false });
   /* --- 两个剖切立面：x=0 与 y=0 --- */
   const addCutFace = (axis) => {
     const N = 90, cp = [], ci = [], line = [];
@@ -995,7 +996,9 @@ function makeGlassMaskMaterial() {
         vec3 lightDir = normalize(vec3(0.35, 0.45, 0.8));
         float shade = 0.72 + 0.28 * max(dot(normalize(vNormal), lightDir), 0.0);
         vec3 rgb = mix(vec3(1.0), vColor, useTint) * shade;
-        gl_FragColor = vec4(rgb, 0.52 * mask + 0.08 * (1.0 - mask));
+        // 透明玻璃：几乎全透，只留极淡的明暗差异；有色玻璃：半透叠加
+        float alpha = mix(0.06, 0.52, useTint) * mask + 0.02 * (1.0 - mask);
+        gl_FragColor = vec4(rgb, alpha);
       }
     `,
     vertexColors: true,
