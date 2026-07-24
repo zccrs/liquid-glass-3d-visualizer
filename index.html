@@ -936,8 +936,8 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float insideX = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0);
         float insideY = step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
         float insideImage = insideX * insideY;
-        // ShaderMaterial 不自动 decode SRGB 纹理，手动 decode→linear 做计算，输出前 encode 回 sRGB
-        vec3 color = pow(texture2D(map, clamp(sampleUv, vec2(0.001), vec2(0.999))).rgb, vec3(2.2));
+        // 纹理 SRGB colorSpace → WebGL 硬件 sRGB sampler 自动 decode → texture2D 返回 linear
+        vec3 color = texture2D(map, clamp(sampleUv, vec2(0.001), vec2(0.999))).rgb;
         // 镜面高光（与 liquidglass.frag specular 分支一致）
         if (specular > 1e-4) {
           float rr = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
@@ -965,8 +965,8 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         }
         // 白色染色（与 liquidglass.frag tint 一致）
         if (tint > 1e-4) color = mix(color, vec3(1.0), clamp(tint, 0.0, 1.0));
-        // 输出 linear，three.js 对 ShaderMaterial 自动做 linear→sRGB encode（与 backdrop 一致）
-        gl_FragColor = vec4(clamp(color, 0.0, 1.0), insideImage);
+        // ShaderMaterial 不自动注入 output encode，手动 linear→sRGB
+        gl_FragColor = vec4(pow(clamp(color, 0.0, 1.0), vec3(1.0 / 2.2)), insideImage);
       }
     `,
   });
