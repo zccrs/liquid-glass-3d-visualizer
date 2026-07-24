@@ -109,34 +109,49 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-function createDefaultTexture() {
-  const c = document.createElement('canvas');
-  c.width = 512; c.height = 512;
-  const ctx = c.getContext('2d');
-  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
-    ctx.fillStyle = (x + y) % 2 ? '#dbeafe' : '#1d4ed8';
-    ctx.fillRect(x * 64, y * 64, 64, 64);
-  }
-  ctx.strokeStyle = '#f97316'; ctx.lineWidth = 10;
-  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(512, 512); ctx.stroke();
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  return tex;
-}
-
-const textureState = { imageTexture: createDefaultTexture(), textureLoaded: false };
-function setImageTexture(texture, loaded) {
+function configureImageTexture(texture) {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
+
+function containImageSize(image, maxW = 640, maxH = 420) {
+  const iw = Math.max(image?.naturalWidth || image?.width || 1, 1);
+  const ih = Math.max(image?.naturalHeight || image?.height || 1, 1);
+  const s = Math.min(maxW / iw, maxH / ih);
+  return new THREE.Vector2(iw * s, ih * s);
+}
+
+const textureState = {
+  imageTexture: null,
+  textureLoaded: false,
+  imagePlaneSize: new THREE.Vector2(0, 0),
+  glassOffset: new THREE.Vector2(0, 0),
+  dragEnabled: false,
+  dragging: false,
+  dragStartPoint: new THREE.Vector3(),
+  dragStartOffset: new THREE.Vector2(),
+};
+
+function syncVizTextureState() {
+  if (!window.__viz) return;
+  window.__viz.textureLoaded = textureState.textureLoaded;
+  window.__viz.dragEnabled = textureState.dragEnabled;
+  window.__viz.imagePlaneSize = { x: textureState.imagePlaneSize.x, y: textureState.imagePlaneSize.y };
+  window.__viz.glassOffset = { x: textureState.glassOffset.x, y: textureState.glassOffset.y };
+}
+
+function setImageTexture(texture, loaded) {
   if (textureState.textureLoaded && textureState.imageTexture) textureState.imageTexture.dispose();
-  textureState.imageTexture = texture;
+  textureState.imageTexture = configureImageTexture(texture);
   textureState.textureLoaded = loaded;
-  window.__viz.textureLoaded = loaded;
+  textureState.dragEnabled = loaded;
+  textureState.glassOffset.set(0, 0);
+  textureState.imagePlaneSize.copy(loaded ? containImageSize(texture.image) : new THREE.Vector2(0, 0));
+  syncVizTextureState();
+  viewB.fitted = false;
   rebuild();
 }
 
@@ -616,6 +631,8 @@ function makeRefractedMaterial(P, hx, hy, tex) {
     uniforms: {
       map: { value: tex },
       halfSize: { value: new THREE.Vector2(hx, hy) },
+      imagePlaneSize: { value: textureState.imagePlaneSize.clone() },
+      glassOffset: { value: textureState.glassOffset.clone() },
       radius: { value: P.radius },
       bezelWidth: { value: P.bezelWidth },
       thickness: { value: P.thickness },
@@ -635,7 +652,7 @@ function makeRefractedMaterial(P, hx, hy, tex) {
     fragmentShader: `
       precision highp float;
       uniform sampler2D map;
-      uniform vec2 halfSize;
+      uniform vec2 halfSize, imagePlaneSize, glassOffset;
       uniform float radius, bezelWidth, thickness, ior, refractionMaxTan, contentEdgePull, contentRampEnd, profilePower;
       varying vec2 vLocal;
       float sdRound(vec2 p, vec2 b, float r) {
@@ -653,7 +670,7 @@ function makeRefractedMaterial(P, hx, hy, tex) {
         return clamp(dist / max(bezelWidth, 1.0), 0.0, 1.0);
       }
       void main() {
-        vec2 uv = vLocal / (halfSize * 2.0) + 0.5;
+        vec2 uv = (glassOffset + vLocal) / imagePlaneSize + 0.5;
         float t = fieldT(vLocal);
         float s = 1.0 - t;
         float p = max(profilePower, 1.0);
@@ -669,7 +686,7 @@ function makeRefractedMaterial(P, hx, hy, tex) {
         float ramp = mix(contentEdgePull, 1.0, smoothstep(0.0, rampEnd, t));
         float maxDisp = min(min(bezelWidth * 0.85, thickness * 0.75), 48.0);
         float magG = min(thickness * h * ramp * max(slopeMag - tanT, 0.0), maxDisp);
-        vec2 duv = sdfNormal(vLocal) * magG / (halfSize * 2.0);
+        vec2 duv = sdfNormal(vLocal) * magG / imagePlaneSize;
         vec4 color = texture2D(map, clamp(uv + duv, vec2(0.001), vec2(0.999)));
         gl_FragColor = vec4(color.rgb, 0.82);
       }
@@ -683,6 +700,21 @@ function buildViewB(group) {
   const thick = P.thickness;
   const mode = effectiveCornerMode(P, hx, hy);
   const skirt = Math.max(6, thick * 0.12);
+  const previewMode = textureState.textureLoaded && textureState.imageTexture;
+  const glassGroup = previewMode ? new THREE.Group() : group;
+  if (previewMode) {
+    const backdrop = new THREE.Mesh(
+      new THREE.PlaneGeometry(textureState.imagePlaneSize.x, textureState.imagePlaneSize.y),
+      new THREE.MeshBasicMaterial({ map: textureState.imageTexture, side: THREE.DoubleSide })
+    );
+    backdrop.position.z = -skirt - 4;
+    backdrop.renderOrder = -1;
+    group.add(backdrop);
+    viewB.imageBackdrop = backdrop;
+  } else {
+    viewB.imageBackdrop = null;
+    viewB.refractedMesh = null;
+  }
   const { bezel } = fieldAt(0, 0, hx, hy, P.radius, P.bezelWidth, mode);
 
   /* --- 顶面：轮廓环形网格。外圈就是真实 rounded-rect 轮廓，避免规则网格裁剪造成狗啃边。 --- */
@@ -724,34 +756,23 @@ function buildViewB(group) {
   tg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   tg.setIndex(idx);
   tg.computeVertexNormals();
-  const bg = tg.clone();
-  const bp = bg.attributes.position.array;
-  for (let i = 2; i < bp.length; i += 3) bp[i] = -skirt - 1;
-  bg.attributes.position.needsUpdate = true;
-  bg.computeVertexNormals();
-  const base = new THREE.Mesh(
-    bg,
-    new THREE.MeshBasicMaterial({ map: textureState.imageTexture, transparent: true, opacity: 0.72, side: THREE.DoubleSide })
-  );
-  base.renderOrder = 0;
-  group.add(base);
-  viewB.baseImagePlane = base;
-
-  const rg = tg.clone();
-  const rp = rg.attributes.position.array;
-  for (let i = 2; i < rp.length; i += 3) rp[i] -= 0.6;
-  rg.attributes.position.needsUpdate = true;
-  const refracted = new THREE.Mesh(rg, makeRefractedMaterial(P, hx, hy, textureState.imageTexture));
-  refracted.renderOrder = 1;
-  group.add(refracted);
-  viewB.refractedMesh = refracted;
+  if (previewMode) {
+    const rg = tg.clone();
+    const rp = rg.attributes.position.array;
+    for (let i = 2; i < rp.length; i += 3) rp[i] -= 0.6;
+    rg.attributes.position.needsUpdate = true;
+    const refracted = new THREE.Mesh(rg, makeRefractedMaterial(P, hx, hy, textureState.imageTexture));
+    refracted.renderOrder = 1;
+    glassGroup.add(refracted);
+    viewB.refractedMesh = refracted;
+  }
 
   const topMesh = new THREE.Mesh(tg, new THREE.MeshPhysicalMaterial({
     vertexColors: true, transparent: true, opacity: 0.56, roughness: 0.12, metalness: 0,
     clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide, depthWrite: false,
   }));
   topMesh.renderOrder = 2;
-  group.add(topMesh);
+  glassGroup.add(topMesh);
 
   /* --- 侧壁 + 底面（与顶面 t=0 环同高，无缝衔接） --- */
   const m = loop.length;
@@ -769,16 +790,17 @@ function buildViewB(group) {
   sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
   sg.setIndex(si);
   sg.computeVertexNormals();
-  group.add(new THREE.Mesh(sg, new THREE.MeshPhysicalMaterial({
+  glassGroup.add(new THREE.Mesh(sg, new THREE.MeshPhysicalMaterial({
     color: 0x7cc4e8, transparent: true, opacity: 0.55, roughness: 0.2, metalness: 0, side: THREE.DoubleSide,
   })));
   // 轮廓线
-  group.add(lineObj([...loop.map(p => [p[0], p[1], h0 * thick + 0.4]), [loop[0][0], loop[0][1], h0 * thick + 0.4]], 0xe2e8f0)); // 轮廓线：白
+  glassGroup.add(lineObj([...loop.map(p => [p[0], p[1], h0 * thick + 0.4]), [loop[0][0], loop[0][1], h0 * thick + 0.4]], 0xe2e8f0)); // 轮廓线：白
 
+  if (!previewMode) {
   /* --- 参数标注 --- */
   // width / height
-  group.add(dimension([-hx, -hy - 24, -skirt], [hx, -hy - 24, -skirt], 0xfbbf24));      // width 琥珀色
-  group.add(dimension([hx + 24, -hy, -skirt], [hx + 24, hy, -skirt], 0x4ade80));       // height 绿色
+  glassGroup.add(dimension([-hx, -hy - 24, -skirt], [hx, -hy - 24, -skirt], 0xfbbf24));      // width 琥珀色
+  glassGroup.add(dimension([hx + 24, -hy, -skirt], [hx + 24, hy, -skirt], 0x4ade80));       // height 绿色
   // radius：右上角画圆弧 + 半径引线
   const rr = Math.min(Math.max(P.radius, 0), Math.min(hx, hy));
   if (rr > 2) {
@@ -788,20 +810,26 @@ function buildViewB(group) {
       const a = (90 * i / 24) * Math.PI / 180;
       arcPts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a), az]);
     }
-    group.add(lineObj(arcPts, 0xf472b6));
+    glassGroup.add(lineObj(arcPts, 0xf472b6));
     const m45 = [cx + rr * Math.SQRT1_2, cy + rr * Math.SQRT1_2, az];
-    group.add(arrow([cx, cy, az], m45, 0xf472b6));
+    glassGroup.add(arrow([cx, cy, az], m45, 0xf472b6));
     const dotC = new THREE.Mesh(new THREE.SphereGeometry(1.8, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf472b6 }));
-    dotC.position.set(cx, cy, az); group.add(dotC);
+    dotC.position.set(cx, cy, az); glassGroup.add(dotC);
   }
   // bezelWidth：右边缘中点，沿表面过渡带
-  group.add(dimension([hx - bezel, 0, thick + 10], [hx, 0, thick + 10], 0x22d3ee));    // bezelWidth 青色
-  group.add(lineObj([[hx, 0, 0], [hx, 0, thick + 10]], 0x78716c, true));
-  group.add(lineObj([[hx - bezel, 0, thick], [hx - bezel, 0, thick + 10]], 0x78716c, true));
+  glassGroup.add(dimension([hx - bezel, 0, thick + 10], [hx, 0, thick + 10], 0x22d3ee));    // bezelWidth 青色
+  glassGroup.add(lineObj([[hx, 0, 0], [hx, 0, thick + 10]], 0x78716c, true));
+  glassGroup.add(lineObj([[hx - bezel, 0, thick], [hx - bezel, 0, thick + 10]], 0x78716c, true));
   // thickness：左侧竖直尺寸线
-  group.add(dimension([-hx - 30, hy * 0.4, 0], [-hx - 30, hy * 0.4, thick], 0xc084fc)); // thickness 紫色
+  glassGroup.add(dimension([-hx - 30, hy * 0.4, 0], [-hx - 30, hy * 0.4, thick], 0xc084fc)); // thickness 紫色
+  }
 
-  return { cz: thick / 2, size: Math.max(P.width, P.height, thick * 2, 120) };
+  if (previewMode) {
+    glassGroup.position.set(textureState.glassOffset.x, textureState.glassOffset.y, 0);
+    group.add(glassGroup);
+    syncVizTextureState();
+  }
+  return { cz: thick / 2, size: previewMode ? Math.max(textureState.imagePlaneSize.x, textureState.imagePlaneSize.y, P.width, P.height, 120) : Math.max(P.width, P.height, thick * 2, 120), force: previewMode };
 }
 
 /* ============ UI、切换与渲染循环 ============ */
@@ -849,7 +877,7 @@ function rebuildView(view, builder, fitCamera) {
   view.group = new THREE.Group();
   const fit = builder(view.group);
   view.scene.add(view.group);
-  if (!view.fitted) { view.fitted = true; fitCamera(view, fit); }
+  if (!view.fitted || fit.force) { view.fitted = true; fitCamera(view, fit); }
 }
 
 function rebuild() {
@@ -858,8 +886,16 @@ function rebuild() {
     v.camera.position.set(f.cx + f.size * 0.45, (f.cy ?? 0) - f.size * 0.95, f.cz + f.size * 0.62);
   });
   rebuildView(viewB, buildViewB, (v, f) => {
-    v.controls.target.set(0, 0, f.cz);
-    v.camera.position.set(f.size * 0.8, -f.size * 1.0, f.size * 0.75);
+    if (textureState.textureLoaded) {
+      v.controls.enabled = false;
+      v.controls.target.set(0, 0, 0);
+      v.camera.position.set(0, 0, f.size * 1.35);
+      v.camera.up.set(0, 1, 0);
+    } else {
+      v.controls.enabled = true;
+      v.controls.target.set(0, 0, f.cz);
+      v.camera.position.set(f.size * 0.8, -f.size * 1.0, f.size * 0.75);
+    }
   });
   readout.textContent = readoutTextA;
 }
@@ -875,6 +911,38 @@ function switchTab(name) {
 }
 document.getElementById('tabA').addEventListener('click', () => switchTab('A'));
 document.getElementById('tabB').addEventListener('click', () => switchTab('B'));
+
+const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const dragRaycaster = new THREE.Raycaster();
+const dragNdc = new THREE.Vector2();
+function pointerToDragPlane(ev) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  dragNdc.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -(((ev.clientY - rect.top) / rect.height) * 2 - 1));
+  dragRaycaster.setFromCamera(dragNdc, viewB.camera);
+  const out = new THREE.Vector3();
+  return dragRaycaster.ray.intersectPlane(dragPlane, out) ? out : null;
+}
+renderer.domElement.addEventListener('pointerdown', ev => {
+  if (activeName !== 'B' || !textureState.dragEnabled) return;
+  const p = pointerToDragPlane(ev);
+  if (!p) return;
+  textureState.dragging = true;
+  textureState.dragStartPoint.copy(p);
+  textureState.dragStartOffset.copy(textureState.glassOffset);
+  renderer.domElement.setPointerCapture(ev.pointerId);
+});
+renderer.domElement.addEventListener('pointermove', ev => {
+  if (!textureState.dragging) return;
+  const p = pointerToDragPlane(ev);
+  if (!p) return;
+  textureState.glassOffset.copy(textureState.dragStartOffset).add(new THREE.Vector2(p.x - textureState.dragStartPoint.x, p.y - textureState.dragStartPoint.y));
+  syncVizTextureState();
+  rebuild();
+});
+renderer.domElement.addEventListener('pointerup', ev => {
+  textureState.dragging = false;
+  if (renderer.domElement.hasPointerCapture(ev.pointerId)) renderer.domElement.releasePointerCapture(ev.pointerId);
+});
 
 function onResize() {
   const w = viewport.clientWidth, h = viewport.clientHeight;

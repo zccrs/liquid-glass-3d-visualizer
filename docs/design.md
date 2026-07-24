@@ -84,24 +84,26 @@
 
 ### 目标
 
-视图 B 支持上传一张图片作为玻璃底部内容。上传后，用户透过玻璃看到的不是原始平铺图片，而是按 Treeland Liquid Glass 折射近似计算后的图片采样结果。
+视图 B 支持上传一张图片作为玻璃背后的固定内容。上传后，玻璃像 Treeland 中的 glass 一样覆盖在图片上：改变玻璃大小只改变玻璃窗口，不缩放图片；拖动玻璃会改变它在图片上的采样位置。
 
 ### UI
 
-- 侧栏新增 `上传底部贴图` 区域。
+- 侧栏提供 `上传底部贴图` 区域。
 - `<input type="file" accept="image/*">` 只接受图片。
-- 未上传图片时使用程序生成的 checker/grid 纹理，保证默认视图仍可说明折射效果。
-- 上传新图片会立即替换底部贴图并重建视图 B。
+- 未上传图片时保留当前可旋转 3D 玻璃几何视图。
+- 上传图片后切换到正面预览模式：相机面向屏幕，禁用 3D 旋转，用鼠标拖动玻璃在图片上移动。
+- 背景图片采用 contain 居中显示，图片可以比玻璃大。
 
 ### 场景结构
 
-- `baseImagePlane`：位于玻璃底部下方，显示原始图片，作为未折射参考。
-- `refractedImageMesh`：复用玻璃顶面轮廓网格，使用 `ShaderMaterial` 采样同一张图片；该层位于玻璃顶面稍下方，表现“透过玻璃看到的图片”。
-- 现有玻璃体材质、尺寸线、图例和参数滑条保持不变。
+- `imageBackdrop`：固定背景图片平面，独立于玻璃尺寸。
+- `refractedImageMesh`：与玻璃轮廓一致的折射采样层，采样固定背景图片坐标。
+- `glassOffset`：玻璃相对图片中心的 2D 偏移，拖动时更新。
+- 现有参数滑条保持可用；图片模式下尺寸线和部分 3D 标注可隐藏，避免遮挡预览。
 
 ### 折射模型
 
-- 片元坐标映射到玻璃局部坐标 `(x, y)`。
+- 片元坐标先转换为背景图片坐标：`bgCoord = glassOffset + localGlassCoord`。
 - 用 rounded-rect SDF 近似 2D 外法线方向。
 - 用 `t`、`profilePower`、`thickness/bezelWidth` 计算表面斜率。
 - 用 `ior` 和 Snell 关系计算 `tanθt`。
@@ -109,14 +111,15 @@
   `magG = H·contentRamp·max(slopeMag−tanθt, 0)`。
 - `contentRamp = mix(contentEdgePull, 1, smoothstep(0, contentRampEnd, t))`。
 - `refractionMaxTan` 截断 `slopeMag`。
-- UV 沿外法线方向偏移并 clamp 到图片边界。
+- 最终采样：`sampleCoord = bgCoord + n2·magG`，再按固定 `imagePlaneSize` 转成 UV。
 
 ### 验证
 
 - 浏览器测试生成一张临时 PNG 并上传。
-- 上传后检查 `window.__viz.textureLoaded === true`。
-- 检查视图 B 中存在折射层 mesh，且其 uniforms 随 `ior`、`contentEdgePull` 等滑条更新。
-- 截图确认上传图片在玻璃下方可见，玻璃边缘区域出现折射拉伸。
+- 上传后检查 `window.__viz.textureLoaded === true`、`dragEnabled === true`、`OrbitControls.enabled === false`。
+- 改 `width/height` 后检查 `imagePlaneSize` 不变，证明图片不随玻璃缩放。
+- 模拟拖动后检查 `glassOffset` 改变。
+- 截图确认上传图片固定在背景上，玻璃正面覆盖其上，边缘区域出现折射拉伸。
 
 ## 文件
 
