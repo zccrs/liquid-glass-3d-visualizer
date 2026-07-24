@@ -952,6 +952,8 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
           float specHighlight = fresnel * pow(rimDot * rimFalloff, 1.35);
           color += vec3(specHighlight * clamp(specular, 0.0, 1.0));
           float innerRim = smoothstep(0.0, 2.0, distFromEdge) * (1.0 - smoothstep(2.0, 5.0, distFromEdge));
+          color += vec3(innerRim * 0.12 * clamp(specular, 0.0, 1.0));
+        }
         // 内边缘阴影（与 liquidglass.frag innerShadow 一致）
         if (innerShadow > 1e-4) {
           float rr2 = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
