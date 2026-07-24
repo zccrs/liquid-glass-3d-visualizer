@@ -1059,9 +1059,9 @@ function buildProcessedTexture(P) {
   const img = tex.image;
   const ow = Math.max(2, img.naturalWidth || img.width || 2);
   const oh = Math.max(2, img.naturalHeight || img.height || 2);
-  const maxDim = 2048;
-  const sc = Math.min(1, maxDim / Math.max(ow, oh));
-  const w = Math.max(2, Math.round(ow * sc)), h = Math.max(2, Math.round(oh * sc));
+  // 直接用原图 native 尺寸，不设上限降采样：避免玻璃内比玻璃外糊。
+  // WebGL MAX_TEXTURE_SIZE（通常 8192+）会兜底，超大图浏览器自行处理。
+  const w = ow, h = oh;
   // 模糊半径按显示尺寸(imagePlaneSize)定义，换算到 canvas(原图)像素：乘原图/显示比
   const dispW = Math.max(2, textureState.imagePlaneSize.x), dispH = Math.max(2, textureState.imagePlaneSize.y);
   const radiusDisp = effectState.blurEnabled ? P.blurAmount * P.blurMax * (1 + P.blurMultiplier) : 0;
