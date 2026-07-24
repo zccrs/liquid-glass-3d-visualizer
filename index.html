@@ -169,7 +169,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 function configureImageTexture(texture) {
-  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.colorSpace = THREE.NoColorSpace; // raw：折射 ShaderMaterial 直通，backdrop MeshBasicMaterial 也直通
   texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
@@ -1109,7 +1109,7 @@ function buildProcessedTexture(P) {
   blurCtx.filter = 'none';
   if (!blurTexture) {
     blurTexture = new THREE.CanvasTexture(blurCanvas);
-    blurTexture.colorSpace = THREE.SRGBColorSpace;
+    blurTexture.colorSpace = THREE.NoColorSpace; // raw，与 ShaderMaterial texture2D 直通一致
     blurTexture.wrapS = blurTexture.wrapT = THREE.ClampToEdgeWrapping;
     blurTexture.minFilter = THREE.LinearFilter;
     blurTexture.magFilter = THREE.LinearFilter;
@@ -1477,7 +1477,17 @@ renderer.domElement.addEventListener('pointermove', ev => {
   if (!p) return;
   textureState.glassOffset.copy(textureState.dragStartOffset).add(new THREE.Vector2(p.x - textureState.dragStartPoint.x, p.y - textureState.dragStartPoint.y));
   syncVizTextureState();
-  rebuild();
+  // 只更新位置和 uniform，不重建几何（rebuild 会重建 57601 顶点网格，太重）
+  if (viewB.group) {
+    viewB.group.position.set(textureState.glassOffset.x, textureState.glassOffset.y, 0);
+    const mat = viewB.refractedMesh?.material;
+    if (mat?.uniforms?.glassOffset) mat.uniforms.glassOffset.value.copy(textureState.glassOffset);
+    const tm = viewB.topMesh?.material;
+    if (tm?.uniforms?.glassOffset) tm.uniforms.glassOffset.value.copy(textureState.glassOffset);
+    const sm = viewB.group.children.find(c => c.material?.uniforms?.glassOffset);
+    if (sm?.material?.uniforms?.glassOffset) sm.material.uniforms.glassOffset.value.copy(textureState.glassOffset);
+  }
+  requestRender();
 }, true);
 renderer.domElement.addEventListener('pointerup', ev => {
   if (textureState.dragging) {
