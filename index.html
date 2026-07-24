@@ -1283,7 +1283,7 @@ document.getElementById('textureUpload').addEventListener('change', ev => {
     const dataUrl = String(reader.result || '');
     if (!dataUrl) return;
     try { localStorage.setItem(STORAGE_WALLPAPER_KEY, dataUrl); } catch (err) { console.warn('Failed to save wallpaper:', err); }
-    new THREE.TextureLoader().load(dataUrl, tex => { setImageTexture(tex, true); saveAppState(); });
+    new THREE.TextureLoader().load(dataUrl, tex => { setImageTexture(tex, true); textureState.clearGlass = true; document.getElementById('clearGlass').checked = true; syncVizTextureState(); rebuild(); saveAppState(); });
   };
   reader.readAsDataURL(file);
 });
