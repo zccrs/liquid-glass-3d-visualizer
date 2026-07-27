@@ -474,7 +474,7 @@ function debugRefractionAt(px, py) {
   const tanT = sinT / Math.sqrt(Math.max(1 - sinT * sinT, 1e-4));
   const rampEnd = Math.max(P.contentRampEnd, 1e-4);
   const ramp = edgePull + (1 - edgePull) * THREE.MathUtils.smoothstep(f.t, 0, rampEnd);
-  const maxDisp = Math.min(Math.min(f.bezel * 0.85, P.thickness * 0.75), 48);
+  const maxDisp = Math.min(Math.min(f.bezel * 0.85, P.thickness * 0.75), 48) * Math.max(P.refractionMaxTan / 2.75, 1);
   const raw = P.thickness * h * ramp * Math.max(slopeMag - tanT, 0);
   const magG = Math.min(raw, maxDisp);
   return { t: f.t, bezel: f.bezel, mode, n2: n, magG, sampleOffset: [-n[0] * magG, -n[1] * magG] };
@@ -942,7 +942,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float tanT = sinT / sqrt(max(1.0 - sinT * sinT, 1e-4));
         float rampEnd = max(contentRampEnd, 1e-4);
         float ramp = mix(edgePull, 1.0, smoothstep(0.0, rampEnd, t));
-        float maxDisp = min(min(bezelWidth * 0.85, thickness * 0.75), 48.0);
+        float maxDisp = min(min(bezelWidth * 0.85, thickness * 0.75), 48.0) * max(refractionMaxTan / 2.75, 1.0);
         float magG = min(thickness * h * ramp * max(slopeMag - tanT, 0.0), maxDisp);
         vec2 n2 = fieldNormal(vLocal);          // 外法线
         vec2 duv = -n2 * magG / imagePlaneSize;  // 向内采样（与 liquidglass.frag inward*magG 一致）
