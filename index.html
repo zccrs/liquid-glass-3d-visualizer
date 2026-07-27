@@ -219,7 +219,7 @@ const PARAMS = {
   bezelWidth:       { v: 60,  min: 2,   max: 60,  step: 1,    views: 'A+B', desc: '边缘过渡带宽度（px）：从轮廓 (t=0) 到平坦区 (t=1) 的距离。曲面只存在于这一窄带内。' },
   thickness:        { v: 50,  min: 10,  max: 200, step: 1,    views: 'A+B', desc: '玻璃基础厚度（px）。剖面最大高度 H = h(t)·thickness，同时直接放大折射位移。' },
   profilePower:     { v: 4,   min: 1,   max: 8,   step: 0.1,  views: 'A+B', desc: '剖面曲线指数 p：h = (1−(1−t)^p)^(1/p)。shader 固定 p=4（squircle），p=2 为圆弧，p 越大边缘越陡。【可视化扩展参数】' },
-  cornerField:      { v: 0,   min: 0,   max: 4,   step: 1,    views: 'A+B', options: ['Treeland current / smooth product', 'Legacy shaderT', 'Virtual radius', 'Radial corner blend', 'Virtual radius + post warp'], desc: '角区 t 场实验：用于对比 radius < bezelWidth 时四角分割线/拉伸覆盖。' },
+  cornerField:      { v: 0,   min: 0,   max: 4,   step: 1,    views: 'A+B', options: ['Treeland current / smooth product', 'Legacy shaderT', 'Virtual radius', 'Radial corner blend', 'Virtual radius + geometry warp'], desc: '角区 t 场实验：用于对比 radius < bezelWidth 时四角分割线/拉伸覆盖。' },
   ior:              { v: 1.5, min: 1.0, max: 3.0, step: 0.01, views: 'A+B', desc: '折射率。Snell 定律 sinθt = sinθi / ior。1.5 ≈ 普通玻璃；视图 B 中会改变底部贴图折射强度。' },
   refractionMaxTan: { v: 2.75,min: 0.1, max: 20,  step: 0.05, views: 'A+B', desc: '几何斜率 tanθi 的上限。视图 A 看曲线；视图 B 中限制底部贴图位移，避免边缘尖刺。' },
   contentEdgePull:  { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '唇边保留的拉拽比例 (0–1)，即 t=0 处 contentRamp 的下限。视图 B 中影响贴图靠边处的位移。' },
@@ -416,6 +416,28 @@ function virtualRadiusT(px, py, hx, hy, outerRadius, bezel) {
   return clamp(dist / Math.max(bezel, 1), 0, 1);
 }
 
+function warpToVirtualRadiusPoint(px, py, hx, hy, bezel) {
+  const sx = px < 0 ? -1 : 1, sy = py < 0 ? -1 : 1;
+  const dx = hx - Math.abs(px), dy = hy - Math.abs(py);
+  if (dx >= bezel || dy >= bezel) return [px, py];
+  const vx = dx - bezel, vy = dy - bezel;
+  const rho = Math.hypot(vx, vy);
+  if (rho <= 1e-5) return [px, py];
+  const ux = vx / rho, uy = vy / rho;
+  const tx = ux < -1e-5 ? bezel / -ux : 1e6;
+  const ty = uy < -1e-5 ? bezel / -uy : 1e6;
+  const realOuter = Math.max(Math.min(tx, ty), 1e-4);
+  const scale = bezel / realOuter;
+  const qx = bezel + vx * scale;
+  const qy = bezel + vy * scale;
+  return [sx * (hx - qx), sy * (hy - qy)];
+}
+
+function warpedVirtualRadiusT(px, py, hx, hy, outerRadius, bezel) {
+  const [qx, qy] = warpToVirtualRadiusPoint(px, py, hx, hy, bezel);
+  return virtualRadiusT(qx, qy, hx, hy, outerRadius, bezel);
+}
+
 function radialCornerBlendT(px, py, hx, hy, outerRadius, bezel) {
   const dx = hx - Math.abs(px), dy = hy - Math.abs(py);
   const edgeT = Math.min(clamp(dx / bezel, 0, 1), clamp(dy / bezel, 0, 1));
@@ -443,7 +465,7 @@ function fieldAt(px, py, hx, hy, radius, bezelWidth, mode = 0) {
     if (mode < 1.5) return { t: shaderT, bezel: sizeLimitedBezel, expanding: true };
     if (mode < 2.5) return { t: virtualRadiusT(px, py, hx, hy, outerRadius, sizeLimitedBezel), bezel: sizeLimitedBezel, expanding: true };
     if (mode < 3.5) return { t: radialCornerBlendT(px, py, hx, hy, outerRadius, sizeLimitedBezel), bezel: sizeLimitedBezel, expanding: true };
-    return { t: virtualRadiusT(px, py, hx, hy, outerRadius, sizeLimitedBezel), bezel: sizeLimitedBezel, expanding: true };
+    return { t: warpedVirtualRadiusT(px, py, hx, hy, outerRadius, sizeLimitedBezel), bezel: sizeLimitedBezel, expanding: true };
   }
   return { t: clamp(distFromEdge / sizeLimitedBezel, 0, 1), bezel: sizeLimitedBezel, expanding: false };
 }
@@ -908,6 +930,20 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
       float smoothCornerT(float topProgress, float sideProgress) {
         return sqrt(smoother(topProgress) * smoother(sideProgress));
       }
+      vec2 warpToVirtualRadiusPoint(vec2 p, float b) {
+        vec2 s = vec2(p.x < 0.0 ? -1.0 : 1.0, p.y < 0.0 ? -1.0 : 1.0);
+        vec2 d = halfSize - abs(p);
+        if (d.x >= b || d.y >= b) return p;
+        vec2 v = d - vec2(b);
+        float rho = length(v);
+        if (rho <= 1e-5) return p;
+        vec2 u = v / rho;
+        float tx = u.x < -1e-5 ? b / -u.x : 1e6;
+        float ty = u.y < -1e-5 ? b / -u.y : 1e6;
+        float realOuter = max(min(tx, ty), 1e-4);
+        vec2 qd = vec2(b) + v * (b / realOuter);
+        return s * (halfSize - qd);
+      }
       float fieldT(vec2 p) {
         float rr = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
         float b = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
@@ -935,7 +971,8 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
             return clamp(mix(smoothT, min(edgeT + radialT * 0.5, 1.0), clamp(cornerWeight, 0.0, 1.0)), 0.0, 1.0);
           }
           float fieldRadius = max(rr, b);
-          return clamp((-sdRound(p, halfSize, fieldRadius)) / b, 0.0, 1.0);
+          vec2 warped = warpToVirtualRadiusPoint(p, b);
+          return clamp((-sdRound(warped, halfSize, fieldRadius)) / b, 0.0, 1.0);
         }
         return clamp(dist / b, 0.0, 1.0);
       }
@@ -975,13 +1012,6 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         vec2 n2 = fieldNormal(vLocal);          // 外法线
         vec2 duv = -n2 * magG / imagePlaneSize;  // 向内采样（与 liquidglass.frag inward*magG 一致）
         vec2 sampleUv = uv + duv;
-        if (cornerMode > 3.5 && rr0 < bezelWidth) {
-          float b = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
-          vec2 d = halfSize - abs(vLocal);
-          float cornerWeight = 1.0 - max(clamp(d.x / b, 0.0, 1.0), clamp(d.y / b, 0.0, 1.0));
-          vec2 cornerDir = -sign(vLocal);
-          sampleUv += cornerDir * cornerWeight * max(b - rr0, 0.0) * 0.35 / imagePlaneSize;
-        }
         float insideX = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0);
         float insideY = step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
         float insideImage = insideX * insideY;
