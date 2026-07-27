@@ -220,7 +220,6 @@ const PARAMS = {
   virtualRadius:    { v: -1,  min: -1,  max: 200, step: 1,    views: 'A+B', desc: '光学计算使用的虚拟圆角半径（px）。-1 表示跟随 bezelWidth；与 radius 不一致时将虚拟玻璃结果形变到真实 radius 外形。' },
   thickness:        { v: 50,  min: 10,  max: 200, step: 1,    views: 'A+B', desc: '玻璃基础厚度（px）。剖面最大高度 H = h(t)·thickness，同时直接放大折射位移。' },
   profilePower:     { v: 4,   min: 1,   max: 8,   step: 0.1,  views: 'A+B', desc: '剖面曲线指数 p：h = (1−(1−t)^p)^(1/p)。shader 固定 p=4（squircle），p=2 为圆弧，p 越大边缘越陡。【可视化扩展参数】' },
-  cornerField:      { v: 0,   min: 0,   max: 3,   step: 1,    views: 'A+B', options: ['Treeland current / smooth product', 'Legacy shaderT', 'Virtual radius', 'Radial corner blend'], desc: '角区 t 场实验：只影响虚拟光学圆角内部的 t 场计算；形变由 virtualRadius 与 radius 是否一致自动决定。' },
   ior:              { v: 1.5, min: 1.0, max: 3.0, step: 0.01, views: 'A+B', desc: '折射率。Snell 定律 sinθt = sinθi / ior。1.5 ≈ 普通玻璃；视图 B 中会改变底部贴图折射强度。' },
   refractionMaxTan: { v: 2.75,min: 0.1, max: 20,  step: 0.05, views: 'A+B', desc: '几何斜率 tanθi 的上限。视图 A 看曲线；视图 B 中限制底部贴图位移，避免边缘尖刺。' },
   contentEdgePull:  { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '唇边保留的拉拽比例 (0–1)，即 t=0 处 contentRamp 的下限。视图 B 中影响贴图靠边处的位移。' },
@@ -516,13 +515,7 @@ function fieldAt(px, py, hx, hy, radius, bezelWidth, mode = 0) {
   return { t: clamp(distFromEdge / sizeLimitedBezel, 0, 1), bezel: sizeLimitedBezel, expanding: false };
 }
 
-function effectiveCornerMode(P, hx, hy) {
-  return clamp(Math.round(P.cornerField), 0, 3);
-}
-
-function cornerModeLabel(P, mode) {
-  return PARAMS.cornerField.options?.[mode] || `mode ${mode}`;
-}
+const DEFAULT_CORNER_MODE = 0;
 
 // 与 shader expandingCornerBezelField 相同：t 场梯度 → 外法线 n2 与 localBezel
 function fieldNormal(px, py, hx, hy, radius, bezelWidth, mode = 0, virtualRadius = -1) {
@@ -541,7 +534,7 @@ function fieldNormal(px, py, hx, hy, radius, bezelWidth, mode = 0, virtualRadius
 function debugRefractionAt(px, py) {
   const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
   const hx = P.width / 2, hy = P.height / 2;
-  const mode = effectiveCornerMode(P, hx, hy);
+  const mode = DEFAULT_CORNER_MODE;
   const opticalRadius = resolveVirtualRadiusValue(P.virtualRadius, P.bezelWidth, hx, hy);
   const shadePoint = opticalCoordinateForMode(px, py, hx, hy, P.radius, P.bezelWidth, P.virtualRadius);
   const f = fieldAt(shadePoint[0], shadePoint[1], hx, hy, opticalRadius, P.bezelWidth, mode);
@@ -691,12 +684,13 @@ function buildViewA(group) {
   const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
   const hx = P.width / 2, hy = P.height / 2, thick = P.thickness;
   const skirt = P.skirt;
-  const mode = effectiveCornerMode(P, hx, hy);
+  const mode = DEFAULT_CORNER_MODE;
   const opticalRadius = resolveVirtualRadiusValue(P.virtualRadius, P.bezelWidth, hx, hy);
   const { bezel } = fieldAt(0, 0, hx, hy, opticalRadius, P.bezelWidth, mode);
   const opticalFieldAt = (x, y) => {
-    const [sx, sy] = opticalCoordinateForMode(x, y, hx, hy, P.radius, P.bezelWidth, P.virtualRadius);
-    return fieldAt(sx, sy, hx, hy, opticalRadius, P.bezelWidth, mode);
+    const shadePoint = opticalCoordinateForMode(x, y, hx, hy, P.radius, P.bezelWidth, P.virtualRadius);
+    const f = fieldAt(shadePoint[0], shadePoint[1], hx, hy, opticalRadius, P.bezelWidth, mode);
+    return { ...f, shadePoint };
   };
   const h0 = surfaceProfile(0)[0];
   const qloop = quarterOutline(hx, hy, P.radius, 128);
@@ -724,7 +718,7 @@ function buildViewA(group) {
         const [nx, ny] = roundedRectNormal(x, y, hx, hy, P.radius);
         x -= nx * sd; y -= ny * sd;
       }
-      const f = fieldAt(x, y, hx, hy, P.radius, P.bezelWidth, mode);
+      const f = opticalFieldAt(x, y);
       pos.push(x, y, surfaceProfile(f.t)[0] * thick);
       if (f.t >= 1) tmp.copy(cFlat);
       else if (f.t > 0.5) tmp.copy(cMid).lerp(cFlat, (f.t - 0.5) * 2);
@@ -755,7 +749,7 @@ function buildViewA(group) {
     for (let i = 0; i <= N; i++) {
       const u = maxU * i / N;
       const x = axis === 'x' ? u : 0, y = axis === 'x' ? 0 : u;
-      const z = surfaceProfile(fieldAt(x, y, hx, hy, P.radius, P.bezelWidth, mode).t)[0] * thick;
+      const z = surfaceProfile(opticalFieldAt(x, y).t)[0] * thick;
       line.push([x, y, z + 0.3]);
       if (skirt > 0) { cp.push(x, y, z, x, y, -skirt); }
     }
@@ -874,7 +868,7 @@ function buildViewA(group) {
 
   readoutTextA =
     `四分之一玻璃：轮廓位置 = ${(P.rayPos * 100).toFixed(1)}%    t = ${fAt.t.toFixed(2)}    H = ${pz.toFixed(1)} px    p = ${P.profilePower}\n` +
-    `角区模式 = ${cornerModeLabel(P, mode)}    localBezel = ${FN.localBezel.toFixed(2)} px    n2 = (${FN.n2[0].toFixed(2)}, ${FN.n2[1].toFixed(2)})\n` +
+    `virtualRadius = ${opticalRadius.toFixed(1)} px    shadePoint = (${fAt.shadePoint?.[0]?.toFixed?.(1) ?? '—'}, ${fAt.shadePoint?.[1]?.toFixed?.(1) ?? '—'})    localBezel = ${FN.localBezel.toFixed(2)} px    n2 = (${FN.n2[0].toFixed(2)}, ${FN.n2[1].toFixed(2)})\n` +
     `tanθi(原始) = ${rawTan.toFixed(3)}${clamped ? `  → 被 refractionMaxTan=${maxTan} 截断` : ''}\n` +
     `outerSoft = ${outerSoft.toFixed(3)}（轮廓 5px 内抗锯齿衰减）\n` +
     `tanθi(采用) = ${slopeMag.toFixed(3)}    θi = ${(thetaI * 180 / Math.PI).toFixed(2)}°\n` +
@@ -1314,7 +1308,7 @@ function buildViewB(group) {
   const hx = P.width / 2, hy = P.height / 2;
   const thick = P.thickness;
   const skirt = P.skirt;
-  const mode = effectiveCornerMode(P, hx, hy);
+  const mode = DEFAULT_CORNER_MODE;
   const previewMode = textureState.textureLoaded && textureState.imageTexture;
   const glassGroup = previewMode ? new THREE.Group() : group;
   if (previewMode) {
