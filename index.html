@@ -60,6 +60,7 @@
   .param .views { font-size: 10px; color: #64748b; margin-left: 6px; font-family: inherit; }
   .param .val { font-family: Consolas, monospace; font-size: 13px; color: #fbbf24; }
   .param input[type=range] { width: 100%; margin: 7px 0 5px; accent-color: #2563eb; }
+  .param select { width: 100%; margin: 7px 0 5px; padding: 6px 8px; border-radius: 6px; border: 1px solid #334155; background: #111827; color: #e5e7eb; }
   .param .desc { font-size: 12px; color: #94a3b8; line-height: 1.5; }
   .param.toggle-param { display: flex; align-items: center; gap: 10px; }
   .param.toggle-param .head { flex: 1; }
@@ -218,7 +219,7 @@ const PARAMS = {
   bezelWidth:       { v: 60,  min: 2,   max: 60,  step: 1,    views: 'A+B', desc: '边缘过渡带宽度（px）：从轮廓 (t=0) 到平坦区 (t=1) 的距离。曲面只存在于这一窄带内。' },
   thickness:        { v: 50,  min: 10,  max: 200, step: 1,    views: 'A+B', desc: '玻璃基础厚度（px）。剖面最大高度 H = h(t)·thickness，同时直接放大折射位移。' },
   profilePower:     { v: 4,   min: 1,   max: 8,   step: 0.1,  views: 'A+B', desc: '剖面曲线指数 p：h = (1−(1−t)^p)^(1/p)。shader 固定 p=4（squircle），p=2 为圆弧，p 越大边缘越陡。【可视化扩展参数】' },
-  cornerField:      { v: 0,   min: 0,   max: 2,   step: 1,    views: 'A+B', desc: '角区 t 场策略：0=自动（radius <= bezelWidth 时用 smooth 角区场，避免 shader 平台折痕）；1=强制当前 shader；2=强制双边平滑。' },
+  cornerField:      { v: 0,   min: 0,   max: 4,   step: 1,    views: 'A+B', options: ['Treeland current / smooth product', 'Legacy shaderT', 'Virtual radius', 'Radial corner blend', 'Virtual radius + post warp'], desc: '角区 t 场实验：用于对比 radius < bezelWidth 时四角分割线/拉伸覆盖。' },
   ior:              { v: 1.5, min: 1.0, max: 3.0, step: 0.01, views: 'A+B', desc: '折射率。Snell 定律 sinθt = sinθi / ior。1.5 ≈ 普通玻璃；视图 B 中会改变底部贴图折射强度。' },
   refractionMaxTan: { v: 2.75,min: 0.1, max: 20,  step: 0.05, views: 'A+B', desc: '几何斜率 tanθi 的上限。视图 A 看曲线；视图 B 中限制底部贴图位移，避免边缘尖刺。' },
   contentEdgePull:  { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'A+B', desc: '唇边保留的拉拽比例 (0–1)，即 t=0 处 contentRamp 的下限。视图 B 中影响贴图靠边处的位移。' },
@@ -288,11 +289,10 @@ function loadSavedState() {
 function syncParamControls() {
   for (const [key, o] of Object.entries(PARAMS)) {
     const row = [...document.querySelectorAll('.param')].find(e => e.querySelector('.name')?.textContent === key);
-    if (!row) continue;
-    const input = row.querySelector('input');
+    const input = row.querySelector(o.options ? 'select' : 'input');
     const val = row.querySelector('.val');
     input.value = o.v;
-    val.textContent = o.v;
+    val.textContent = o.options ? o.options[o.v] : o.v;
   }
   const blurBox = document.getElementById('blurEnabled');
   if (blurBox) blurBox.checked = effectState.blurEnabled;
@@ -410,6 +410,21 @@ function smoothCornerT(topProgress, sideProgress) {
   return Math.sqrt(smoother01(topProgress) * smoother01(sideProgress));
 }
 
+function virtualRadiusT(px, py, hx, hy, outerRadius, bezel) {
+  const fieldRadius = Math.max(outerRadius, bezel);
+  const dist = -sdRoundedRect(px, py, hx, hy, fieldRadius);
+  return clamp(dist / Math.max(bezel, 1), 0, 1);
+}
+
+function radialCornerBlendT(px, py, hx, hy, outerRadius, bezel) {
+  const dx = hx - Math.abs(px), dy = hy - Math.abs(py);
+  const edgeT = Math.min(clamp(dx / bezel, 0, 1), clamp(dy / bezel, 0, 1));
+  const radialT = clamp(Math.hypot(dx, dy) / Math.max(bezel, 1), 0, 1);
+  const smoothT = smoothCornerT(clamp(dy / bezel, 0, 1), clamp(dx / bezel, 0, 1));
+  const cornerWeight = 1 - Math.max(clamp(dx / bezel, 0, 1), clamp(dy / bezel, 0, 1));
+  return clamp(THREE.MathUtils.lerp(smoothT, Math.min(edgeT + radialT * 0.5, 1), clamp(cornerWeight, 0, 1)), 0, 1);
+}
+
 // 与 shader main() 相同的分支：任一点的 (t, localBezel, expanding)
 function fieldAt(px, py, hx, hy, radius, bezelWidth, mode = 0) {
   const outerRadius = Math.min(Math.max(radius, 0), Math.min(hx, hy));
@@ -417,31 +432,28 @@ function fieldAt(px, py, hx, hy, radius, bezelWidth, mode = 0) {
   const distFromEdge = -sdRoundedRect(px, py, hx, hy, radius);
   if (outerRadius < sizeLimitedBezel) {
     const shaderT = getFieldT(px, py, hx, hy, outerRadius, sizeLimitedBezel);
-    if (mode !== 0) { // mode: 0=shader，1=smooth；自动模式仅在 radius<bezel 时传入 1。
+    if (mode < 0.5) {
       const dx = hx - Math.abs(px), dy = hy - Math.abs(py), rr = outerRadius, b = sizeLimitedBezel;
-      const outerX = dx < rr ? rr - Math.sqrt(Math.max(0, dx * (2 * rr - dx))) : 0; // top/bottom outer arc
-      const outerY = dy < rr ? rr - Math.sqrt(Math.max(0, dy * (2 * rr - dy))) : 0; // left/right outer arc
+      const outerX = dx < rr ? rr - Math.sqrt(Math.max(0, dx * (2 * rr - dx))) : 0;
+      const outerY = dy < rr ? rr - Math.sqrt(Math.max(0, dy * (2 * rr - dy))) : 0;
       const topProgress = clamp((dy - outerX) / b, 0, 1);
       const sideProgress = clamp((dx - outerY) / b, 0, 1);
-      const smoothT = smoothCornerT(topProgress, sideProgress);
-      const mix = mode < 0 ? 1 : mode;
-      return { t: clamp(shaderT * (1 - mix) + smoothT * mix, 0, 1), bezel: sizeLimitedBezel, expanding: true };
+      return { t: smoothCornerT(topProgress, sideProgress), bezel: sizeLimitedBezel, expanding: true };
     }
-    return { t: shaderT, bezel: sizeLimitedBezel, expanding: true };
+    if (mode < 1.5) return { t: shaderT, bezel: sizeLimitedBezel, expanding: true };
+    if (mode < 2.5) return { t: virtualRadiusT(px, py, hx, hy, outerRadius, sizeLimitedBezel), bezel: sizeLimitedBezel, expanding: true };
+    if (mode < 3.5) return { t: radialCornerBlendT(px, py, hx, hy, outerRadius, sizeLimitedBezel), bezel: sizeLimitedBezel, expanding: true };
+    return { t: virtualRadiusT(px, py, hx, hy, outerRadius, sizeLimitedBezel), bezel: sizeLimitedBezel, expanding: true };
   }
   return { t: clamp(distFromEdge / sizeLimitedBezel, 0, 1), bezel: sizeLimitedBezel, expanding: false };
 }
 
 function effectiveCornerMode(P, hx, hy) {
-  const outerRadius = Math.min(Math.max(P.radius, 0), Math.min(hx, hy));
-  const sizeLimitedBezel = Math.min(Math.max(P.bezelWidth, 1), Math.max(Math.min(hx, hy) - 1, 1));
-  if (P.cornerField < 0.5) return outerRadius < sizeLimitedBezel ? 1 : 0; // auto: use smooth only for expanding branch
-  return P.cornerField < 1.5 ? 0 : 1; // force shader / force smooth
+  return clamp(Math.round(P.cornerField), 0, 4);
 }
 
 function cornerModeLabel(P, mode) {
-  if (P.cornerField < 0.5) return mode >= 0.5 ? '自动 → smooth 角区场' : '自动 → 当前 shader';
-  return mode >= 0.5 ? '强制双边平滑混合' : '强制当前 shader expanding-corners';
+  return PARAMS.cornerField.options?.[mode] || `mode ${mode}`;
 }
 
 // 与 shader expandingCornerBezelField 相同：t 场梯度 → 外法线 n2 与 localBezel
@@ -901,13 +913,29 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float b = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
         float dist = -sdRound(p, halfSize, rr);
         if (rr < b) {
-          float st = shaderT(p, rr, b);
-          if (cornerMode < 0.5) return st;
-          float dx = halfSize.x - abs(p.x);
-          float dy = halfSize.y - abs(p.y);
-          float topProgress = clamp((dy - arcOuter(dx, rr)) / b, 0.0, 1.0);
-          float sideProgress = clamp((dx - arcOuter(dy, rr)) / b, 0.0, 1.0);
-          return smoothCornerT(topProgress, sideProgress);
+          if (cornerMode < 0.5) {
+            float dx = halfSize.x - abs(p.x);
+            float dy = halfSize.y - abs(p.y);
+            float topProgress = clamp((dy - arcOuter(dx, rr)) / b, 0.0, 1.0);
+            float sideProgress = clamp((dx - arcOuter(dy, rr)) / b, 0.0, 1.0);
+            return smoothCornerT(topProgress, sideProgress);
+          }
+          if (cornerMode < 1.5) return shaderT(p, rr, b);
+          if (cornerMode < 2.5) {
+            float fieldRadius = max(rr, b);
+            return clamp((-sdRound(p, halfSize, fieldRadius)) / b, 0.0, 1.0);
+          }
+          if (cornerMode < 3.5) {
+            float dx = halfSize.x - abs(p.x);
+            float dy = halfSize.y - abs(p.y);
+            float edgeT = min(clamp(dx / b, 0.0, 1.0), clamp(dy / b, 0.0, 1.0));
+            float radialT = clamp(length(vec2(dx, dy)) / b, 0.0, 1.0);
+            float smoothT = smoothCornerT(clamp(dy / b, 0.0, 1.0), clamp(dx / b, 0.0, 1.0));
+            float cornerWeight = 1.0 - max(clamp(dx / b, 0.0, 1.0), clamp(dy / b, 0.0, 1.0));
+            return clamp(mix(smoothT, min(edgeT + radialT * 0.5, 1.0), clamp(cornerWeight, 0.0, 1.0)), 0.0, 1.0);
+          }
+          float fieldRadius = max(rr, b);
+          return clamp((-sdRound(p, halfSize, fieldRadius)) / b, 0.0, 1.0);
         }
         return clamp(dist / b, 0.0, 1.0);
       }
@@ -947,6 +975,13 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         vec2 n2 = fieldNormal(vLocal);          // 外法线
         vec2 duv = -n2 * magG / imagePlaneSize;  // 向内采样（与 liquidglass.frag inward*magG 一致）
         vec2 sampleUv = uv + duv;
+        if (cornerMode > 3.5 && rr0 < bezelWidth) {
+          float b = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
+          vec2 d = halfSize - abs(vLocal);
+          float cornerWeight = 1.0 - max(clamp(d.x / b, 0.0, 1.0), clamp(d.y / b, 0.0, 1.0));
+          vec2 cornerDir = -sign(vLocal);
+          sampleUv += cornerDir * cornerWeight * max(b - rr0, 0.0) * 0.35 / imagePlaneSize;
+        }
         float insideX = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0);
         float insideY = step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
         float insideImage = insideX * insideY;
@@ -1298,15 +1333,20 @@ blurEnabledInput.addEventListener('change', ev => {
 for (const [key, o] of Object.entries(PARAMS)) {
   const div = document.createElement('div');
   div.className = 'param';
+  const valueText = o.options ? o.options[o.v] : o.v;
+  const controlHtml = o.options
+    ? `<select>${o.options.map((label, idx) => `<option value="${idx}">${idx} · ${label}</option>`).join('')}</select>`
+    : `<input type="range" min="${o.min}" max="${o.max}" step="${o.step}" value="${o.v}">`;
   div.innerHTML =
     `<div class="head"><span><span class="name">${key}</span><span class="views">视图 ${o.views}</span></span>` +
-    `<span class="val">${o.v}</span></div>` +
-    `<input type="range" min="${o.min}" max="${o.max}" step="${o.step}" value="${o.v}">` +
+    `<span class="val">${valueText}</span></div>` +
+    controlHtml +
     `<div class="desc">${o.desc}</div>`;
-  const input = div.querySelector('input'), val = div.querySelector('.val');
-  input.addEventListener('input', () => {
-    o.v = parseFloat(input.value);
-    val.textContent = o.v;
+  const input = div.querySelector(o.options ? 'select' : 'input'), val = div.querySelector('.val');
+  input.value = o.v;
+  input.addEventListener(o.options ? 'change' : 'input', () => {
+    o.v = o.options ? parseInt(input.value, 10) : parseFloat(input.value);
+    val.textContent = o.options ? o.options[o.v] : o.v;
     rebuild();
     saveAppState();
   });
