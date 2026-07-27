@@ -438,6 +438,32 @@ function warpedVirtualRadiusT(px, py, hx, hy, outerRadius, bezel) {
   return virtualRadiusT(qx, qy, hx, hy, outerRadius, bezel);
 }
 
+function warpFromVirtualRadiusPoint(px, py, hx, hy, bezel) {
+  const sx = px < 0 ? -1 : 1, sy = py < 0 ? -1 : 1;
+  const dx = hx - Math.abs(px), dy = hy - Math.abs(py);
+  if (dx >= bezel || dy >= bezel) return [px, py];
+  const vx = dx - bezel, vy = dy - bezel;
+  const rho = Math.hypot(vx, vy);
+  if (rho <= 1e-5) return [px, py];
+  const ux = vx / rho, uy = vy / rho;
+  const tx = ux < -1e-5 ? bezel / -ux : 1e6;
+  const ty = uy < -1e-5 ? bezel / -uy : 1e6;
+  const realOuter = Math.max(Math.min(tx, ty), 1e-4);
+  const scale = realOuter / bezel;
+  const qx = bezel + vx * scale;
+  const qy = bezel + vy * scale;
+  return [sx * (hx - qx), sy * (hy - qy)];
+}
+
+function opticalCoordinateForMode(px, py, hx, hy, radius, bezelWidth, mode) {
+  const outerRadius = Math.min(Math.max(radius, 0), Math.min(hx, hy));
+  const sizeLimitedBezel = Math.min(Math.max(bezelWidth, 1), Math.max(Math.min(hx, hy) - 1, 1));
+  if (mode >= 3.5 && outerRadius < sizeLimitedBezel) {
+    return warpToVirtualRadiusPoint(px, py, hx, hy, sizeLimitedBezel);
+  }
+  return [px, py];
+}
+
 function radialCornerBlendT(px, py, hx, hy, outerRadius, bezel) {
   const dx = hx - Math.abs(px), dy = hy - Math.abs(py);
   const edgeT = Math.min(clamp(dx / bezel, 0, 1), clamp(dy / bezel, 0, 1));
@@ -481,11 +507,16 @@ function cornerModeLabel(P, mode) {
 // 与 shader expandingCornerBezelField 相同：t 场梯度 → 外法线 n2 与 localBezel
 function fieldNormal(px, py, hx, hy, radius, bezelWidth, mode = 0) {
   const eps = 0.5;
-  const ft = (x, y) => fieldAt(x, y, hx, hy, radius, bezelWidth, mode).t;
-  const gx = (ft(px + eps, py) - ft(px - eps, py)) / (2 * eps);
-  const gy = (ft(px, py + eps) - ft(px, py - eps)) / (2 * eps);
+  const outerRadius = Math.min(Math.max(radius, 0), Math.min(hx, hy));
+  const sizeLimitedBezel = Math.min(Math.max(bezelWidth, 1), Math.max(Math.min(hx, hy) - 1, 1));
+  const useVirtualOptics = mode >= 3.5 && outerRadius < sizeLimitedBezel;
+  const [ox, oy] = useVirtualOptics ? warpToVirtualRadiusPoint(px, py, hx, hy, sizeLimitedBezel) : [px, py];
+  const normalMode = useVirtualOptics ? 2 : mode;
+  const ft = (x, y) => fieldAt(x, y, hx, hy, radius, bezelWidth, normalMode).t;
+  const gx = (ft(ox + eps, oy) - ft(ox - eps, oy)) / (2 * eps);
+  const gy = (ft(ox, oy + eps) - ft(ox, oy - eps)) / (2 * eps);
   const len = Math.hypot(gx, gy);
-  if (len <= 1e-5) return { n2: roundedRectNormal(px, py, hx, hy, radius), localBezel: Math.max(bezelWidth, 1) };
+  if (len <= 1e-5) return { n2: roundedRectNormal(ox, oy, hx, hy, useVirtualOptics ? Math.max(outerRadius, sizeLimitedBezel) : radius), localBezel: Math.max(bezelWidth, 1) };
   return { n2: [-gx / len, -gy / len], localBezel: 1 / len };
 }
 
@@ -493,6 +524,7 @@ function debugRefractionAt(px, py) {
   const P = Object.fromEntries(Object.entries(PARAMS).map(([k, o]) => [k, o.v]));
   const hx = P.width / 2, hy = P.height / 2;
   const mode = effectiveCornerMode(P, hx, hy);
+  const shadePoint = opticalCoordinateForMode(px, py, hx, hy, P.radius, P.bezelWidth, mode);
   const f = fieldAt(px, py, hx, hy, P.radius, P.bezelWidth, mode);
   const n = fieldNormal(px, py, hx, hy, P.radius, P.bezelWidth, mode).n2;
   const [h, deriv] = surfaceProfile(f.t, P.profilePower);
@@ -511,7 +543,7 @@ function debugRefractionAt(px, py) {
   const maxDisp = Math.min(Math.min(f.bezel * 0.85, P.thickness * 0.75), 48) * Math.max(P.refractionMaxTan / 2.75, 1);
   const raw = P.thickness * h * ramp * Math.max(slopeMag - tanT, 0);
   const magG = Math.min(raw, maxDisp);
-  return { t: f.t, bezel: f.bezel, mode, n2: n, magG, sampleOffset: [-n[0] * magG, -n[1] * magG] };
+  return { t: f.t, bezel: f.bezel, mode, shadePoint, n2: n, magG, sampleOffset: [-n[0] * magG, -n[1] * magG] };
 }
 
 /* ============ 3D 基础 ============ */
@@ -944,6 +976,16 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         vec2 qd = vec2(b) + v * (b / realOuter);
         return s * (halfSize - qd);
       }
+      float virtualRadiusFieldT(vec2 p, float rr, float b) {
+        float fieldRadius = max(rr, b);
+        return clamp((-sdRound(p, halfSize, fieldRadius)) / b, 0.0, 1.0);
+      }
+      vec2 virtualRadiusFieldNormal(vec2 p, float rr, float b) {
+        float e = 0.5;
+        float dx = virtualRadiusFieldT(p + vec2(e, 0.0), rr, b) - virtualRadiusFieldT(p - vec2(e, 0.0), rr, b);
+        float dy = virtualRadiusFieldT(p + vec2(0.0, e), rr, b) - virtualRadiusFieldT(p - vec2(0.0, e), rr, b);
+        return normalize(-vec2(dx, dy) + vec2(1e-5));
+      }
       float fieldT(vec2 p) {
         float rr = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
         float b = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
@@ -958,8 +1000,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
           }
           if (cornerMode < 1.5) return shaderT(p, rr, b);
           if (cornerMode < 2.5) {
-            float fieldRadius = max(rr, b);
-            return clamp((-sdRound(p, halfSize, fieldRadius)) / b, 0.0, 1.0);
+            return virtualRadiusFieldT(p, rr, b);
           }
           if (cornerMode < 3.5) {
             float dx = halfSize.x - abs(p.x);
@@ -970,9 +1011,8 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
             float cornerWeight = 1.0 - max(clamp(dx / b, 0.0, 1.0), clamp(dy / b, 0.0, 1.0));
             return clamp(mix(smoothT, min(edgeT + radialT * 0.5, 1.0), clamp(cornerWeight, 0.0, 1.0)), 0.0, 1.0);
           }
-          float fieldRadius = max(rr, b);
           vec2 warped = warpToVirtualRadiusPoint(p, b);
-          return clamp((-sdRound(warped, halfSize, fieldRadius)) / b, 0.0, 1.0);
+          return virtualRadiusFieldT(warped, rr, b);
         }
         return clamp(dist / b, 0.0, 1.0);
       }
@@ -984,8 +1024,11 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         return normalize(-g + vec2(1e-5)); // 外法线 n2（与 liquidglass.frag 一致）
       }
       void main() {
-        vec2 uv = (glassOffset + vLocal) / imagePlaneSize + 0.5;
         float rr0 = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
+        float b0 = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
+        bool geometryWarp = cornerMode > 3.5 && rr0 < b0;
+        vec2 shadeLocal = geometryWarp ? warpToVirtualRadiusPoint(vLocal, b0) : vLocal;
+        vec2 uv = (glassOffset + shadeLocal) / imagePlaneSize + 0.5;
         float sd = sdRound(vLocal, halfSize, rr0);
         float distFromEdge0 = -sd;
         // Anti-aliased shape edge (与 Treeland shapeAlpha 一致)
@@ -994,7 +1037,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float outerSoft = smoothstep(0.0, 2.5, distFromEdge0);
         float edgePull = clamp(contentEdgePull, 0.0, 1.0);
         float slopeSoft = mix(outerSoft, 1.0, edgePull);
-        float t = fieldT(vLocal);
+        float t = geometryWarp ? virtualRadiusFieldT(shadeLocal, rr0, b0) : fieldT(vLocal);
         float s = 1.0 - t;
         float p = max(profilePower, 1.0);
         float inside = max(1.0 - pow(s, p), 1e-4);
@@ -1009,7 +1052,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float ramp = mix(edgePull, 1.0, smoothstep(0.0, rampEnd, t));
         float maxDisp = min(min(bezelWidth * 0.85, thickness * 0.75), 48.0) * max(refractionMaxTan / 2.75, 1.0);
         float magG = min(thickness * h * ramp * max(slopeMag - tanT, 0.0), maxDisp);
-        vec2 n2 = fieldNormal(vLocal);          // 外法线
+        vec2 n2 = geometryWarp ? virtualRadiusFieldNormal(shadeLocal, rr0, b0) : fieldNormal(vLocal); // 外法线
         vec2 duv = -n2 * magG / imagePlaneSize;  // 向内采样（与 liquidglass.frag inward*magG 一致）
         vec2 sampleUv = uv + duv;
         float insideX = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0);
@@ -1050,6 +1093,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         gl_FragColor = vec4(pow(clamp(color, 0.0, 1.0), vec3(1.0 / 2.2)), finalAlpha);
       }
     `,
+    side: THREE.FrontSide,
   });
 }
 
@@ -1099,7 +1143,7 @@ function makeGlassMaskMaterial() {
       }
     `,
     vertexColors: true,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
   });
 }
 
@@ -1224,9 +1268,11 @@ function buildViewB(group) {
   }
   const { bezel } = fieldAt(0, 0, hx, hy, P.radius, P.bezelWidth, mode);
 
-  /* --- 顶面：轮廓环形网格。外圈就是真实 rounded-rect 轮廓，避免规则网格裁剪造成狗啃边。 --- */
+  /* --- 顶面：mode 4 先按虚拟 radius=bezel 生成，再 forward-warp 到真实外形。 --- */
   const M = 720, K = 80;
-  const loop = resampledOutline(hx, hy, P.radius, M);
+  const geometryWarp = mode >= 3.5 && P.radius < bezel;
+  const outlineLoop = resampledOutline(hx, hy, P.radius, M);
+  const topLoop = geometryWarp ? resampledOutline(hx, hy, Math.max(P.radius, bezel), M) : outlineLoop;
   const h0 = surfaceProfile(0)[0];
   const pos = [], col = [], idx = [];
   const cEdge = new THREE.Color(0xf59e0b), cMid = new THREE.Color(0x38bdf8), cFlat = new THREE.Color(0xe8f6ff);
@@ -1234,9 +1280,10 @@ function buildViewB(group) {
   for (let k = 0; k < K; k++) {
     const u = k / K; // 0=轮廓，1=中心；最后中心单独一个点，避免重复退化顶点
     for (let i = 0; i < M; i++) {
-      const x = loop[i][0] * (1 - u);
-      const y = loop[i][1] * (1 - u);
-      const f = fieldAt(x, y, hx, hy, P.radius, P.bezelWidth, mode);
+      const vx = topLoop[i][0] * (1 - u);
+      const vy = topLoop[i][1] * (1 - u);
+      const [x, y] = geometryWarp ? warpFromVirtualRadiusPoint(vx, vy, hx, hy, bezel) : [vx, vy];
+      const f = fieldAt(vx, vy, hx, hy, P.radius, P.bezelWidth, geometryWarp ? 2 : mode);
       pos.push(x, y, surfaceProfile(f.t)[0] * thick);
       if (f.t >= 1) tmp.copy(cFlat);
       else if (f.t > 0.5) tmp.copy(cMid).lerp(cFlat, (f.t - 0.5) * 2);
@@ -1263,7 +1310,9 @@ function buildViewB(group) {
   if (previewMode) {
     const rg = tg.clone();
     const rp = rg.attributes.position.array;
-    for (let i = 2; i < rp.length; i += 3) rp[i] -= 0.6;
+    const refractedZ = h0 * thick - 0.6;
+    for (let i = 2; i < rp.length; i += 3) rp[i] = refractedZ;
+    rg.computeVertexNormals();
     rg.attributes.position.needsUpdate = true;
     const processed = buildProcessedTexture(P);
     const refracted = new THREE.Mesh(rg, makeRefractedMaterial(P, hx, hy, processed || textureState.imageTexture, mode));
@@ -1282,10 +1331,10 @@ function buildViewB(group) {
 
   /* --- 侧壁 + 底面（skirt=0 时跳过；与顶面 t=0 环同高，无缝衔接） --- */
   if (skirt > 0) {
-  const m = loop.length;
+  const m = outlineLoop.length;
   const sp = [], si = [];
-  for (let i = 0; i < m; i++) sp.push(loop[i][0], loop[i][1], h0 * thick);
-  for (let i = 0; i < m; i++) sp.push(loop[i][0], loop[i][1], -skirt);
+  for (let i = 0; i < m; i++) sp.push(outlineLoop[i][0], outlineLoop[i][1], h0 * thick);
+  for (let i = 0; i < m; i++) sp.push(outlineLoop[i][0], outlineLoop[i][1], -skirt);
   for (let i = 0; i < m; i++) {
     const a = i, b = (i + 1) % m;
     si.push(a, b, m + a, b, m + b, m + a);
@@ -1303,7 +1352,7 @@ function buildViewB(group) {
   }
   // 轮廓线：只在讲解模式显示；贴图预览里会变成玻璃底部白边。
   if (!previewMode) {
-    glassGroup.add(lineObj([...loop.map(p => [p[0], p[1], h0 * thick + 0.4]), [loop[0][0], loop[0][1], h0 * thick + 0.4]], 0xe2e8f0));
+    glassGroup.add(lineObj([...outlineLoop.map(p => [p[0], p[1], h0 * thick + 0.4]), [outlineLoop[0][0], outlineLoop[0][1], h0 * thick + 0.4]], 0xe2e8f0));
   }
 
   if (!previewMode) {
