@@ -1236,8 +1236,10 @@ function buildViewB(group) {
     color: 0x7cc4e8, transparent: true, opacity: 0.55, roughness: 0.2, metalness: 0, side: THREE.DoubleSide,
   })));
   }
-  // 轮廓线
-  glassGroup.add(lineObj([...loop.map(p => [p[0], p[1], h0 * thick + 0.4]), [loop[0][0], loop[0][1], h0 * thick + 0.4]], 0xe2e8f0)); // 轮廓线：白
+  // 轮廓线：只在讲解模式显示；贴图预览里会变成玻璃底部白边。
+  if (!previewMode) {
+    glassGroup.add(lineObj([...loop.map(p => [p[0], p[1], h0 * thick + 0.4]), [loop[0][0], loop[0][1], h0 * thick + 0.4]], 0xe2e8f0));
+  }
 
   if (!previewMode) {
   /* --- 参数标注 --- */
