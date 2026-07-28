@@ -1261,13 +1261,14 @@ function isBlurTexture(t) { return !!(t && t === blurTexture); }
 // Qt MultiEffect 的 blur 是 0–1 归一化强度，blurMax 不是 CSS filter 的像素半径。
 // CSS blur(px) 使用高斯半径，直接 blurAmount * blurMax 会比 Treeland 糊很多。
 // 这里用 sqrt(blurMax) 把最大强度压到接近 MultiEffect 的视觉量级；
+// 实测 web blurAmount=0.5 约等于 Treeland blurAmount=1.0，因此再乘 0.5 校准。
 // blurMultiplier 只做温和增益，保留“扩展半径”的相对趋势，避免 0–4 线性放大到 5 倍。
 function multiEffectLikeBlurDisplayPx(P) {
   if (!effectState.blurEnabled) return 0;
   const amount = clamp(P.blurAmount, 0, 1);
   const maxBlur = Math.max(0, P.blurMax);
   const multiplier = Math.max(0, P.blurMultiplier);
-  return amount * Math.sqrt(maxBlur) * (1 + multiplier * 0.25);
+  return amount * 0.5 * Math.sqrt(maxBlur) * (1 + multiplier * 0.25);
 }
 
 // 返回经过模糊+颜色调节的背景纹理（折射 shader 直接采样它）。无任何效果时返回原图。
