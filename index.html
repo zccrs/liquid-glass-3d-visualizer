@@ -194,6 +194,7 @@ const textureState = {
   dragStartPoint: new THREE.Vector3(),
   dragStartOffset: new THREE.Vector2(),
   clearGlass: false,
+  blurDebug: { displayPx: 0, canvasPx: 0, nativeScale: 1 },
 };
 
 const effectState = {
@@ -208,6 +209,7 @@ function syncVizTextureState() {
   window.__viz.clearGlass = textureState.clearGlass;
   window.__viz.dragEnabled = textureState.dragEnabled;
   window.__viz.blurEnabled = effectState.blurEnabled;
+  window.__viz.blurDebug = textureState.blurDebug;
   window.__viz.debugRefractionAt = debugRefractionAt;
 }
 
@@ -233,7 +235,7 @@ const PARAMS = {
   brightness:       { v: 0,   min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景亮度调节（DConfig glassBrightness，-1–1）。0 保持不变，Qt MultiEffect 在折射前应用。' },
   contrast:         { v: 0,   min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景对比度调节（DConfig glassContrast，-1–1）。0 保持不变。' },
   saturation:       { v: 0.04,min: -1,  max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '折射前背景饱和度调节（DConfig glassSaturation，-1–1）。默认 0.04 轻微提升饱和度。' },
-  blurAmount:       { v: 0.02,min: 0,   max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '归一化模糊量（DConfig blurAmount，0–1）。0 关闭模糊贡献，默认 0.02 极轻微模糊。' },
+  blurAmount:       { v: 0.6, min: 0,   max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '归一化模糊量（DConfig blurAmount，0–1）。0 关闭模糊贡献，默认 0.6 与 Treeland 一致；web 会校准到 Qt MultiEffect 的视觉强度。' },
   blurMax:          { v: 60,  min: 0,   max: 128, step: 1,    views: 'B',   group: 'effect', desc: '最大模糊强度像素（DConfig blurStrength，0–128）。0 完全关闭模糊。' },
   blurMultiplier:   { v: 0,   min: 0,   max: 4,   step: 0.01, views: 'B',   group: 'effect', desc: '模糊半径扩展倍率（DConfig blurMultiplier，0–4）。0 用默认质量，值越大半径越大但质量降低。' },
   innerShadow:      { v: 0,   min: 0,   max: 1,   step: 0.01, views: 'B',   group: 'effect', desc: '玻璃内边缘阴影强度（liquidglass.frag innerShadow，0–1）。0 无内阴影，默认 0 关闭。' },
@@ -1256,6 +1258,18 @@ function disposeBlurCanvas() {
 }
 function isBlurTexture(t) { return !!(t && t === blurTexture); }
 
+// Qt MultiEffect 的 blur 是 0–1 归一化强度，blurMax 不是 CSS filter 的像素半径。
+// CSS blur(px) 使用高斯半径，直接 blurAmount * blurMax 会比 Treeland 糊很多。
+// 这里用 sqrt(blurMax) 把最大强度压到接近 MultiEffect 的视觉量级；
+// blurMultiplier 只做温和增益，保留“扩展半径”的相对趋势，避免 0–4 线性放大到 5 倍。
+function multiEffectLikeBlurDisplayPx(P) {
+  if (!effectState.blurEnabled) return 0;
+  const amount = clamp(P.blurAmount, 0, 1);
+  const maxBlur = Math.max(0, P.blurMax);
+  const multiplier = Math.max(0, P.blurMultiplier);
+  return amount * Math.sqrt(maxBlur) * (1 + multiplier * 0.25);
+}
+
 // 返回经过模糊+颜色调节的背景纹理（折射 shader 直接采样它）。无任何效果时返回原图。
 // 离屏 canvas 用原图 native 分辨率（上限 2048），避免缩小再放大导致玻璃内内容发糊。
 function buildProcessedTexture(P) {
@@ -1267,10 +1281,12 @@ function buildProcessedTexture(P) {
   // 直接用原图 native 尺寸，不设上限降采样：避免玻璃内比玻璃外糊。
   // WebGL MAX_TEXTURE_SIZE（通常 8192+）会兜底，超大图浏览器自行处理。
   const w = ow, h = oh;
-  // 模糊半径按显示尺寸(imagePlaneSize)定义，换算到 canvas(原图)像素：乘原图/显示比
+  // 模糊半径按显示尺寸(imagePlaneSize)定义，再换算到 canvas(原图)像素。
   const dispW = Math.max(2, textureState.imagePlaneSize.x), dispH = Math.max(2, textureState.imagePlaneSize.y);
-  const radiusDisp = effectState.blurEnabled ? P.blurAmount * P.blurMax * (1 + P.blurMultiplier) : 0;
-  const radiusPx = radiusDisp * (w / dispW);   // 等效到 canvas 像素
+  const nativeScale = w / dispW;
+  const radiusDisp = multiEffectLikeBlurDisplayPx(P);
+  const radiusPx = radiusDisp * nativeScale;   // 等效到 canvas 像素
+  textureState.blurDebug = { displayPx: radiusDisp, canvasPx: radiusPx, nativeScale };
   const doBlur = radiusPx >= 0.5;
   const doColor = (P.brightness !== 0 || P.contrast !== 0 || P.saturation !== 0);
   // 无模糊且无颜色调节 → 直接用原图，省去 canvas 处理
