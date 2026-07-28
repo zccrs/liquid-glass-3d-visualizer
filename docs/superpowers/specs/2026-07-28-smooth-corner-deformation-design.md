@@ -20,7 +20,7 @@ refraction-coordinate fields.
 
 - Preserve the exact visible rounded-rectangle outline described by `radius`.
 - Preserve `virtualRadius` as the radius used for the actual glass surface,
-  normal, specular, and refraction calculations.
+  height profile, normal, specular, and refraction calculations.
 - Apply the radius difference only as the final smooth two-dimensional
   deformation.
 - Remove internal diagonal seams from geometry and refracted content.
@@ -58,7 +58,7 @@ actual display coordinate into its virtual glass coordinate:
 pActual
   -> smoothMapActualToVirtual(radius, virtualRadius, bezel)
   -> pVirtual
-  -> virtual glass field, normal, refraction, and background sampling
+  -> virtual glass field, height, normal, refraction, and background sampling
   -> color displayed at pActual
 ```
 
@@ -86,31 +86,72 @@ E = \min\left(\max(bezel, r_a, r_v, 1),\ \min(halfWidth, halfHeight)\right).
 Outside the corner influence region, the map is exactly the identity. Inside the
 region, coordinates are normalized to a canonical rounded square.
 
-The square-to-disc basis is the branch-free elliptical-grid mapping:
+`M_r` is a symmetric Hermite-Coons displacement patch over canonical corner
+coordinates `(u, v)` for `alpha = r / E`. Its top and right boundary curves
+contain the exact straight segment and the corresponding half of the exact
+radius-`r` circular arc. The two curves meet at the arc midpoint, so no internal
+top-versus-right selection is needed.
+
+Let `DeltaTop(u)` and `DeltaRight(v)` be the differences between those exact
+boundary curves and the square boundary, and let `DeltaCorner` be their shared
+corner displacement. The interior map is:
 
 \[
-D(u,v)=\left(
-  u\sqrt{1-\frac{v^2}{2}},
-  v\sqrt{1-\frac{u^2}{2}}
-\right).
+M_r(u,v)=(u,v)
+  +H(v)\Delta Top(u)
+  +H(u)\Delta Right(v)
+  -H(u)H(v)\Delta Corner
 \]
 
-Its inverse is used for the reverse direction. Unlike a concentric sector map,
-this basis has no `u < v`, `dx < dy`, or nearest-edge selection inside the corner.
-The only unavoidable singularity for an exact square outline is the square's
-boundary corner itself; it must not extend into an interior seam.
+where `H(s) = 6s^5 - 15s^4 + 10s^3`. This Boolean-sum construction gives:
 
-`M_r` generalizes the basis from a square to the exact rounded-rectangle boundary
-for `alpha = r / E`:
+- `alpha = 0`: the exact square parameterization;
+- `alpha = 1`: the exact quarter-disc boundary;
+- intermediate values: the exact radius-`r` arc and adjacent straight segments;
+- zero displacement and zero first derivative at both identity joins;
+- symmetry across the corner diagonal without a diagonal branch.
 
-- `alpha = 0` is the exact square parameterization;
-- `alpha = 1` is the exact quarter-disc parameterization;
-- intermediate values place the outer boundary on the exact radius-`r` circular
-  arc and retain the adjacent straight segments;
-- the interior displacement blends into the identity map with quintic Hermite
-  weight `6s^5 - 15s^4 + 10s^3`;
-- both displacement and first derivative are zero where the corner region joins
-  the unchanged straight-edge/interior region.
+The boundary arc parameter uses cubic Hermite endpoint tangents, making the
+straight-to-arc join C1. `M_r^-1` is evaluated with seven fixed Newton steps.
+The branch-free elliptical-grid disc-to-square inverse supplies the initial
+estimate:
+
+\[
+q_0 = mix(p, D^{-1}(p), alpha).
+\]
+
+The base map's analytic Jacobian is reused by Newton inversion. The only
+unavoidable singularity for an exact square outline is the square's boundary
+corner itself; it must not extend into an interior seam. After the depth
+correction below, the CPU evaluates the complete final Jacobian with a centered
+difference for the screen-facing 3D normal only; the fragment shader does not
+need that Jacobian.
+
+### Bezel-depth preservation
+
+The Hermite-Coons map preserves outlines and angular continuity but does not by
+itself preserve the material's bezel-depth parameter. For
+`radius = 0`, `virtualRadius = bezel`, its uncorrected diagonal samples stay too
+close to the virtual outer arc, bending a profile that is linear in master.
+
+The final two-dimensional map therefore carries a scalar source depth. On the
+corner diagonal it is exactly:
+
+\[
+\tau_s = depth / bezel.
+\]
+
+Away from the diagonal it equals the nearest straight-edge progress. A compact
+C1 splice changes only the derivative transition around equal x/y progress; it
+preserves the exact diagonal values, outer boundary, flat-top join, and straight
+regions. The correction strength is
+`clamp((virtualRadius - radius) / bezel, 0, 1)`, so it vanishes continuously for
+equal radii and does not create a `bezel - 1` to `bezel` jump.
+
+Starting from the smooth Coons-mapped point, three fixed normal-projection steps
+move only the final virtual coordinate onto the requested virtual-field depth.
+All height, profile, shading, and refraction formulas remain unchanged and
+consume that corrected virtual coordinate.
 
 The implementation must not linearly interpolate two signed-distance fields or
 blend two nearest-edge branches. Those constructions can reintroduce derivative
@@ -118,16 +159,17 @@ seams or move the defect to the corner-region boundary.
 
 ## Field and normal semantics
 
-The shader evaluates all optical quantities at `pVirtual`:
+The shader evaluates all glass quantities at `pVirtual`:
 
-- field progress `t`;
+- field progress `t` and the `profilePower` height curve;
 - virtual surface slope and optical normal;
 - refraction magnitude and direction;
 - Fresnel/specular contribution;
 - base and displaced background samples.
 
-This preserves the agreed semantics: render the real `virtualRadius` glass first,
-then deform its final result to the `radius` outline.
+Only the actual outline mask and final displayed coordinate use `pActual`. This
+preserves the required post-process semantics: render the complete
+`virtualRadius` glass first, then deform its final result to the `radius` outline.
 
 For the 3D surface, the displayed position remains `(pActual.x, pActual.y)` and
 its height is:
@@ -136,16 +178,15 @@ its height is:
 z(p_a)=h\left(t(F(p_a))\right).
 \]
 
-The mapping also exposes its Jacobian
-`J = partial(pVirtual) / partial(pActual)`. The actual height gradient is:
+The mapping exposes its Jacobian
+`J = partial(pVirtual) / partial(pActual)`. The displayed height gradient is:
 
 \[
 \nabla_{p_a}z = J^T\nabla_{p_v}z.
 \]
 
-The 3D geometry normal is derived from that actual gradient. A normal computed
-from tessellated triangles may be retained as a diagnostic comparison, but it is
-not the mathematical definition of the deformed surface normal.
+Only the screen-facing top geometry uses that transformed gradient. Side walls
+and corner columns retain the actual outline and may keep their hard corners.
 
 ## Degenerate and boundary cases
 
@@ -195,6 +236,12 @@ For representative sizes and every tested radius pair:
 - the interior Jacobian determinant remains positive;
 - position and first derivatives agree across the corner diagonal and corner
   influence boundaries.
+- changing `radius` leaves `t`, height, normal, and refraction samples exactly
+  unchanged wherever the mapping returns the identity; in particular,
+  `radius = bezel - 1` and `radius = bezel` must not alter non-corner regions.
+- for `radius = 0` and `virtualRadius = bezel`, diagonal depth samples at
+  `5, 10, 20, 30, 40, 50px` equal the corresponding straight-edge samples and
+  `depth / bezel`;
 
 Sweep at least these pairs in both directions:
 

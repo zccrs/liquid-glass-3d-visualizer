@@ -168,6 +168,11 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import {
+  postprocessCornerDepth,
+  mapActualToVirtual,
+  mapActualToVirtualWithJacobian,
+} from './corner-deformation.mjs';
 
 function configureImageTexture(texture) {
   texture.colorSpace = THREE.SRGBColorSpace; // SRGB：backdrop MeshBasicMaterial 正确 decode→encode
@@ -408,7 +413,7 @@ function smoother01(v) {
 
 function smoothCornerT(topProgress, sideProgress) {
   // radius < bezel 时，角区应由两个方向的 bezel 进度共同决定。
-  // sqrt(smoothX*smoothY) 保持边界 t=0、内角 t=1，并让 radius=0 也有完整 bezel 折射带。
+  // 保持 master 的原始玻璃高度场；radius 差异只在最终二维映射中处理。
   return Math.sqrt(smoother01(topProgress) * smoother01(sideProgress));
 }
 
@@ -418,71 +423,21 @@ function virtualRadiusT(px, py, hx, hy, outerRadius, bezel) {
   return clamp(dist / Math.max(bezel, 1), 0, 1);
 }
 
-function actualCornerOuterDistance(ux, uy, radius, bezel) {
-  const rr = Math.max(radius, 0);
-  const candidates = [];
-  if (uy < -1e-5) {
-    const t = bezel / -uy;
-    const x = bezel + ux * t;
-    if (x >= rr - 1e-4) candidates.push(t);
-  }
-  if (ux < -1e-5) {
-    const t = bezel / -ux;
-    const y = bezel + uy * t;
-    if (y >= rr - 1e-4) candidates.push(t);
-  }
-  if (rr > 1e-5) {
-    const cx = bezel - rr, cy = bezel - rr;
-    const bq = 2 * (ux * cx + uy * cy);
-    const cq = cx * cx + cy * cy - rr * rr;
-    const disc = bq * bq - 4 * cq;
-    if (disc >= 0) {
-      const roots = [(-bq - Math.sqrt(disc)) * 0.5, (-bq + Math.sqrt(disc)) * 0.5];
-      for (const t of roots) {
-        const x = bezel + ux * t, y = bezel + uy * t;
-        if (t > 1e-5 && x <= rr + 1e-4 && y <= rr + 1e-4) candidates.push(t);
-      }
-    }
-  }
-  return Math.max(Math.min(...candidates, 1e6), 1e-4);
-}
 
 function resolveVirtualRadiusValue(virtualRadius, bezel, hx, hy) {
   const requested = Number.isFinite(virtualRadius) && virtualRadius >= 0 ? virtualRadius : bezel;
   return Math.min(Math.max(requested, 0), Math.min(hx, hy));
 }
 
-function warpBetweenRadiiPoint(px, py, hx, hy, fromRadius, toRadius, bezel) {
-  const from = Math.min(Math.max(fromRadius, 0), Math.min(hx, hy));
-  const to = Math.min(Math.max(toRadius, 0), Math.min(hx, hy));
-  if (Math.abs(from - to) <= 1e-4) return [px, py];
-  const extent = Math.min(Math.max(bezel, from, to, 1), Math.max(Math.min(hx, hy), 1));
-  const sx = px < 0 ? -1 : 1, sy = py < 0 ? -1 : 1;
-  const dx = hx - Math.abs(px), dy = hy - Math.abs(py);
-  if (dx >= extent || dy >= extent) return [px, py];
-  const vx = dx - extent, vy = dy - extent;
-  const rho = Math.hypot(vx, vy);
-  if (rho <= 1e-5) return [px, py];
-  const ux = vx / rho, uy = vy / rho;
-  const fromOuter = actualCornerOuterDistance(ux, uy, from, extent);
-  const toOuter = actualCornerOuterDistance(ux, uy, to, extent);
-  const qx = extent + vx * (toOuter / fromOuter);
-  const qy = extent + vy * (toOuter / fromOuter);
-  return [sx * (hx - qx), sy * (hy - qy)];
-}
 
-function warpToVirtualRadiusPoint(px, py, hx, hy, radius, virtualRadius, bezel) {
-  return warpBetweenRadiiPoint(px, py, hx, hy, radius, virtualRadius, bezel);
-}
 
-function warpFromVirtualRadiusPoint(px, py, hx, hy, radius, virtualRadius, bezel) {
-  return warpBetweenRadiiPoint(px, py, hx, hy, virtualRadius, radius, bezel);
-}
 
 function opticalCoordinateForMode(px, py, hx, hy, radius, bezelWidth, virtualRadius) {
   const sizeLimitedBezel = Math.min(Math.max(bezelWidth, 1), Math.max(Math.min(hx, hy) - 1, 1));
   const opticalRadius = resolveVirtualRadiusValue(virtualRadius, sizeLimitedBezel, hx, hy);
-  return warpToVirtualRadiusPoint(px, py, hx, hy, radius, opticalRadius, sizeLimitedBezel);
+  return mapPostprocessedOpticalPoint(
+    [px, py], [hx, hy], radius, opticalRadius, sizeLimitedBezel,
+  );
 }
 
 function radialCornerBlendT(px, py, hx, hy, outerRadius, bezel) {
@@ -517,6 +472,112 @@ function fieldAt(px, py, hx, hy, radius, bezelWidth, mode = 0) {
   return { t: clamp(distFromEdge / sizeLimitedBezel, 0, 1), bezel: sizeLimitedBezel, expanding: false };
 }
 
+function sourcePostprocessDepth(px, py, hx, hy, radius, bezel) {
+  const rr = clamp(radius, 0, Math.min(hx, hy));
+  if (rr >= bezel) return fieldAt(px, py, hx, hy, rr, bezel, DEFAULT_CORNER_MODE).t;
+
+  const dx = hx - Math.abs(px);
+  const dy = hy - Math.abs(py);
+  const outerX = dx < rr ? rr - Math.sqrt(Math.max(0, dx * (2 * rr - dx))) : 0;
+  const outerY = dy < rr ? rr - Math.sqrt(Math.max(0, dy * (2 * rr - dy))) : 0;
+  const topProgress = clamp((dy - outerX) / bezel, 0, 1);
+  const sideProgress = clamp((dx - outerY) / bezel, 0, 1);
+  return postprocessCornerDepth(topProgress, sideProgress);
+}
+
+function preservePostprocessDepth(point, mappedPoint, halfSize, radius, opticalRadius, bezel) {
+  const strength = clamp((opticalRadius - radius) / Math.max(bezel, 1), 0, 1);
+  if (strength <= 1e-5) return mappedPoint;
+
+  const extent = Math.min(
+    Math.max(bezel, radius, opticalRadius, 1),
+    Math.min(halfSize[0], halfSize[1]),
+  );
+  const dx = halfSize[0] - Math.abs(point[0]);
+  const dy = halfSize[1] - Math.abs(point[1]);
+  if (dx >= extent || dy >= extent) return mappedPoint;
+
+  const baseT = fieldAt(
+    mappedPoint[0], mappedPoint[1],
+    halfSize[0], halfSize[1], opticalRadius, bezel, DEFAULT_CORNER_MODE,
+  ).t;
+  const sourceT = sourcePostprocessDepth(
+    point[0], point[1], halfSize[0], halfSize[1], radius, bezel,
+  );
+  const targetT = THREE.MathUtils.lerp(baseT, sourceT, strength);
+  const result = [...mappedPoint];
+  const gradientStep = 0.5;
+  for (let iteration = 0; iteration < 3; iteration++) {
+    const sample = (x, y) => fieldAt(
+      x, y, halfSize[0], halfSize[1],
+      opticalRadius, bezel, DEFAULT_CORNER_MODE,
+    ).t;
+    const error = sample(result[0], result[1]) - targetT;
+    const gx = (
+      sample(result[0] + gradientStep, result[1])
+      - sample(result[0] - gradientStep, result[1])
+    ) / (2 * gradientStep);
+    const gy = (
+      sample(result[0], result[1] + gradientStep)
+      - sample(result[0], result[1] - gradientStep)
+    ) / (2 * gradientStep);
+    const gradientSquared = gx * gx + gy * gy;
+    if (gradientSquared <= 1e-10) break;
+    const step = clamp(error / gradientSquared, -bezel * bezel, bezel * bezel);
+    result[0] -= gx * step;
+    result[1] -= gy * step;
+  }
+  return result;
+}
+
+function mapPostprocessedOpticalPoint(point, halfSize, radius, opticalRadius, bezel) {
+  const mappedPoint = mapActualToVirtual(
+    point, halfSize, radius, opticalRadius, bezel,
+  );
+  return preservePostprocessDepth(
+    point, mappedPoint, halfSize, radius, opticalRadius, bezel,
+  );
+}
+
+function mapPostprocessedOpticalPointWithJacobian(
+  point, halfSize, radius, opticalRadius, bezel,
+) {
+  const base = mapActualToVirtualWithJacobian(
+    point, halfSize, radius, opticalRadius, bezel,
+  );
+  const strength = clamp((opticalRadius - radius) / Math.max(bezel, 1), 0, 1);
+  const extent = Math.min(
+    Math.max(bezel, radius, opticalRadius, 1),
+    Math.min(halfSize[0], halfSize[1]),
+  );
+  const dx = halfSize[0] - Math.abs(point[0]);
+  const dy = halfSize[1] - Math.abs(point[1]);
+  if (strength <= 1e-5 || dx >= extent || dy >= extent) return base;
+
+  const mappedPoint = preservePostprocessDepth(
+    point, base.point, halfSize, radius, opticalRadius, bezel,
+  );
+  const epsilon = 0.02;
+  const at = (x, y) => mapPostprocessedOpticalPoint(
+    [x, y], halfSize, radius, opticalRadius, bezel,
+  );
+  const beforeX = at(point[0] - epsilon, point[1]);
+  const afterX = at(point[0] + epsilon, point[1]);
+  const beforeY = at(point[0], point[1] - epsilon);
+  const afterY = at(point[0], point[1] + epsilon);
+  const jacobian = [
+    (afterX[0] - beforeX[0]) / (2 * epsilon),
+    (afterY[0] - beforeY[0]) / (2 * epsilon),
+    (afterX[1] - beforeX[1]) / (2 * epsilon),
+    (afterY[1] - beforeY[1]) / (2 * epsilon),
+  ];
+  return {
+    point: mappedPoint,
+    jacobian,
+    determinant: jacobian[0] * jacobian[3] - jacobian[1] * jacobian[2],
+  };
+}
+
 const DEFAULT_CORNER_MODE = 0;
 
 // 与 shader expandingCornerBezelField 相同：t 场梯度 → 外法线 n2 与 localBezel
@@ -540,11 +601,15 @@ function debugRefractionAt(px, py) {
   const opticalRadius = resolveVirtualRadiusValue(P.virtualRadius, P.bezelWidth, hx, hy);
   const shadePoint = opticalCoordinateForMode(px, py, hx, hy, P.radius, P.bezelWidth, P.virtualRadius);
   const f = fieldAt(shadePoint[0], shadePoint[1], hx, hy, opticalRadius, P.bezelWidth, mode);
-  const n = fieldNormal(px, py, hx, hy, P.radius, P.bezelWidth, mode, P.virtualRadius).n2;
+  const opticalNormal = fieldNormal(
+    px, py, hx, hy, P.radius, P.bezelWidth, mode, P.virtualRadius,
+  );
+  const n = opticalNormal.n2;
   const [h, deriv] = surfaceProfile(f.t, P.profilePower);
   const rawTan = deriv * (P.thickness / Math.max(f.bezel, 1));
-  const sd = sdRoundedRect(px, py, hx, hy, P.radius);
-  const distFromEdge = -sd;
+  const distFromEdge = -sdRoundedRect(
+    shadePoint[0], shadePoint[1], hx, hy, opticalRadius,
+  );
   const outerSoft = THREE.MathUtils.smoothstep(distFromEdge, 0, 2.5);
   const edgePull = clamp(P.contentEdgePull, 0, 1);
   const slopeSoft = THREE.MathUtils.lerp(outerSoft, 1, edgePull);
@@ -558,6 +623,15 @@ function debugRefractionAt(px, py) {
   const raw = P.thickness * h * ramp * Math.max(slopeMag - tanT, 0);
   const magG = Math.min(raw, maxDisp);
   return { t: f.t, bezel: f.bezel, mode, virtualRadius: opticalRadius, shadePoint, n2: n, magG, sampleOffset: [-n[0] * magG, -n[1] * magG] };
+}
+
+function debugCornerMap(px, py) {
+  const P = Object.fromEntries(Object.entries(PARAMS).map(([key, option]) => [key, option.v]));
+  const halfSize = [P.width / 2, P.height / 2];
+  const virtual = resolveVirtualRadiusValue(P.virtualRadius, P.bezelWidth, ...halfSize);
+  return mapPostprocessedOpticalPointWithJacobian(
+    [px, py], halfSize, P.radius, virtual, P.bezelWidth,
+  );
 }
 
 /* ============ 3D 基础 ============ */
@@ -578,7 +652,7 @@ function makeScene() {
   return { scene, camera, controls, group: null, fitted: false };
 }
 const viewA = makeScene(), viewB = makeScene();
-window.__viz = { viewA, viewB, textureLoaded: false, debugRefractionAt }; // 调试句柄
+window.__viz = { viewA, viewB, textureLoaded: false, debugRefractionAt, debugCornerMap }; // 调试句柄
 let active = viewA, activeName = 'A';
 // 按需渲染：静止时停止 rAF，降低 GPU 占用；交互/damping 期间持续渲染。
 let renderDirty = true;          // 初始渲染一次
@@ -798,7 +872,10 @@ function buildViewA(group) {
   const FN = fieldNormal(px, py, hx, hy, P.radius, P.bezelWidth, mode, P.virtualRadius);
   const [h, deriv] = surfaceProfile(fAt.t);
   const pz = h * thick;
-  const distFromEdge = Math.max(-sdRoundedRect(px, py, hx, hy, P.radius), 0);
+  const distFromEdge = Math.max(
+    -sdRoundedRect(fAt.shadePoint[0], fAt.shadePoint[1], hx, hy, opticalRadius),
+    0,
+  );
   const rawTan = deriv * (thick / FN.localBezel);
   const maxTan = Math.max(P.refractionMaxTan, 0.1);
   const outerSoft = THREE.MathUtils.smoothstep(distFromEdge, 0, 5);
@@ -983,54 +1060,169 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
       float smoothCornerT(float topProgress, float sideProgress) {
         return sqrt(smoother(topProgress) * smoother(sideProgress));
       }
-      float actualCornerOuterDistance(vec2 u, float rr, float b) {
-        float best = 1e6;
-        if (u.y < -1e-5) {
-          float t = b / -u.y;
-          float x = b + u.x * t;
-          if (x >= rr - 1e-4) best = min(best, t);
+      struct BoundaryResult {
+        vec2 point;
+        vec2 derivative;
+      };
+      struct RoundedMapResult {
+        vec2 point;
+        vec4 jacobian;
+      };
+      float cornerQuintic(float value) {
+        float s = clamp(value, 0.0, 1.0);
+        return s * s * s * (s * (s * 6.0 - 15.0) + 10.0);
+      }
+      float cornerQuinticDerivative(float value) {
+        float s = clamp(value, 0.0, 1.0);
+        return 30.0 * s * s * (s - 1.0) * (s - 1.0);
+      }
+      float cornerArcParameter(float value) {
+        float s = clamp(value, 0.0, 1.0);
+        float tangent = 1.4142135623730951;
+        float s2 = s * s;
+        float s3 = s2 * s;
+        return (s3 - 2.0 * s2 + s) * tangent
+          + (-2.0 * s3 + 3.0 * s2)
+          + (s3 - s2) * tangent;
+      }
+      float cornerArcParameterDerivative(float value) {
+        float s = clamp(value, 0.0, 1.0);
+        float tangent = 1.4142135623730951;
+        return (3.0 * s * s - 4.0 * s + 1.0) * tangent
+          + (-6.0 * s * s + 6.0 * s)
+          + (3.0 * s * s - 2.0 * s) * tangent;
+      }
+      BoundaryResult cornerUnitArc(
+        vec2 start, vec2 end, float parameter, float parameterDerivative
+      ) {
+        vec2 delta = end - start;
+        vec2 raw = start + delta * parameter;
+        float rawLength = length(raw);
+        vec2 direction = raw / rawLength;
+        vec2 rawDerivative = delta * parameterDerivative;
+        float parallel = dot(direction, rawDerivative);
+        BoundaryResult result;
+        result.point = direction;
+        result.derivative = (rawDerivative - direction * parallel) / rawLength;
+        return result;
+      }
+      BoundaryResult cornerTopBoundary(float value, float alpha) {
+        BoundaryResult result;
+        if (alpha <= 1e-5 || value <= 1.0 - alpha) {
+          result.point = vec2(value, 1.0);
+          result.derivative = vec2(1.0, 0.0);
+          return result;
         }
-        if (u.x < -1e-5) {
-          float t = b / -u.x;
-          float y = b + u.y * t;
-          if (y >= rr - 1e-4) best = min(best, t);
+        float local = (value - (1.0 - alpha)) / alpha;
+        BoundaryResult arc = cornerUnitArc(
+          vec2(0.0, 1.0), vec2(0.7071067811865476),
+          cornerArcParameter(local), cornerArcParameterDerivative(local)
+        );
+        result.point = vec2(1.0 - alpha) + alpha * arc.point;
+        result.derivative = arc.derivative;
+        return result;
+      }
+      BoundaryResult cornerRightBoundary(float value, float alpha) {
+        BoundaryResult result;
+        if (alpha <= 1e-5 || value <= 1.0 - alpha) {
+          result.point = vec2(1.0, value);
+          result.derivative = vec2(0.0, 1.0);
+          return result;
         }
-        if (rr > 1e-5) {
-          vec2 c = vec2(b - rr);
-          float bq = 2.0 * dot(u, c);
-          float cq = dot(c, c) - rr * rr;
-          float disc = bq * bq - 4.0 * cq;
-          if (disc >= 0.0) {
-            float t0 = (-bq - sqrt(disc)) * 0.5;
-            float t1 = (-bq + sqrt(disc)) * 0.5;
-            vec2 d0 = vec2(b) + u * t0;
-            vec2 d1 = vec2(b) + u * t1;
-            if (t0 > 1e-5 && d0.x <= rr + 1e-4 && d0.y <= rr + 1e-4) best = min(best, t0);
-            if (t1 > 1e-5 && d1.x <= rr + 1e-4 && d1.y <= rr + 1e-4) best = min(best, t1);
-          }
+        float local = (value - (1.0 - alpha)) / alpha;
+        BoundaryResult arc = cornerUnitArc(
+          vec2(1.0, 0.0), vec2(0.7071067811865476),
+          cornerArcParameter(local), cornerArcParameterDerivative(local)
+        );
+        result.point = vec2(1.0 - alpha) + alpha * arc.point;
+        result.derivative = arc.derivative;
+        return result;
+      }
+      RoundedMapResult roundedSquareMap(vec2 canonical, float alpha) {
+        float u = canonical.x;
+        float v = canonical.y;
+        BoundaryResult top = cornerTopBoundary(u, alpha);
+        BoundaryResult right = cornerRightBoundary(v, alpha);
+        vec2 topDelta = top.point - vec2(u, 1.0);
+        vec2 rightDelta = right.point - vec2(1.0, v);
+        float cornerDelta = alpha * (0.7071067811865476 - 1.0);
+        float hu = cornerQuintic(u);
+        float hv = cornerQuintic(v);
+        float dhu = cornerQuinticDerivative(u);
+        float dhv = cornerQuinticDerivative(v);
+        vec2 topDerivative = top.derivative - vec2(1.0, 0.0);
+        vec2 rightDerivative = right.derivative - vec2(0.0, 1.0);
+        RoundedMapResult result;
+        result.point = canonical
+          + hv * topDelta
+          + hu * rightDelta
+          - hu * hv * vec2(cornerDelta);
+        result.jacobian = vec4(
+          1.0 + hv * topDerivative.x + dhu * rightDelta.x - dhu * hv * cornerDelta,
+          dhv * topDelta.x + hu * rightDerivative.x - hu * dhv * cornerDelta,
+          hv * topDerivative.y + dhu * rightDelta.y - dhu * hv * cornerDelta,
+          1.0 + dhv * topDelta.y + hu * rightDerivative.y - hu * dhv * cornerDelta
+        );
+        return result;
+      }
+      vec4 inverseCornerJacobian(vec4 jacobian) {
+        float determinant = jacobian.x * jacobian.w - jacobian.y * jacobian.z;
+        return vec4(
+          jacobian.w, -jacobian.y, -jacobian.z, jacobian.x
+        ) / determinant;
+      }
+      vec2 cornerDiscToSquare(vec2 point) {
+        float root2 = 1.4142135623730951;
+        float a = 2.0 + point.x * point.x - point.y * point.y;
+        float b = 2.0 - point.x * point.x + point.y * point.y;
+        return 0.5 * vec2(
+          sqrt(max(a + 2.0 * root2 * point.x, 0.0))
+            - sqrt(max(a - 2.0 * root2 * point.x, 0.0)),
+          sqrt(max(b + 2.0 * root2 * point.y, 0.0))
+            - sqrt(max(b - 2.0 * root2 * point.y, 0.0))
+        );
+      }
+      vec2 invertRoundedSquare(vec2 point, float alpha) {
+        float corner = 1.0 - alpha + alpha * 0.7071067811865476;
+        if (distance(point, vec2(corner)) <= 1e-5) return vec2(1.0);
+        vec2 discInitial = cornerDiscToSquare(point);
+        vec2 canonical = clamp(
+          mix(point, discInitial, alpha), vec2(0.0), vec2(1.0)
+        );
+        for (int iteration = 0; iteration < 7; iteration++) {
+          RoundedMapResult mapped = roundedSquareMap(canonical, alpha);
+          vec2 error = mapped.point - point;
+          vec4 inverse = inverseCornerJacobian(mapped.jacobian);
+          canonical = clamp(
+            canonical - vec2(
+              inverse.x * error.x + inverse.y * error.y,
+              inverse.z * error.x + inverse.w * error.y
+            ),
+            vec2(0.0), vec2(1.0)
+          );
         }
-        return max(best, 1e-4);
+        return canonical;
       }
       float resolveVirtualRadius(float value, float b) {
         float requested = value >= 0.0 ? value : b;
         return clamp(requested, 0.0, min(halfSize.x, halfSize.y));
       }
-      vec2 warpToVirtualRadiusPoint(vec2 p, float fromR, float toR, float b) {
-        fromR = clamp(fromR, 0.0, min(halfSize.x, halfSize.y));
-        toR = clamp(toR, 0.0, min(halfSize.x, halfSize.y));
+      vec2 mapActualToVirtualPoint(vec2 p, float fromR, float toR, float b) {
+        float limit = min(halfSize.x, halfSize.y);
+        fromR = clamp(fromR, 0.0, limit);
+        toR = clamp(toR, 0.0, limit);
         if (abs(fromR - toR) <= 1e-4) return p;
-        float extent = clamp(max(max(max(b, fromR), toR), 1.0), 1.0, max(min(halfSize.x, halfSize.y), 1.0));
-        vec2 s = vec2(p.x < 0.0 ? -1.0 : 1.0, p.y < 0.0 ? -1.0 : 1.0);
-        vec2 d = halfSize - abs(p);
-        if (d.x >= extent || d.y >= extent) return p;
-        vec2 v = d - vec2(extent);
-        float rho = length(v);
-        if (rho <= 1e-5) return p;
-        vec2 u = v / rho;
-        float fromOuter = actualCornerOuterDistance(u, fromR, extent);
-        float toOuter = actualCornerOuterDistance(u, toR, extent);
-        vec2 qd = vec2(extent) + v * (toOuter / fromOuter);
-        return s * (halfSize - qd);
+        float extent = min(max(max(max(b, fromR), toR), 1.0), limit);
+        vec2 pointSign = vec2(
+          p.x < 0.0 ? -1.0 : 1.0,
+          p.y < 0.0 ? -1.0 : 1.0
+        );
+        vec2 distanceFromEdge = halfSize - abs(p);
+        if (distanceFromEdge.x >= extent || distanceFromEdge.y >= extent) return p;
+        vec2 normalized = vec2(1.0) - distanceFromEdge / extent;
+        vec2 canonical = invertRoundedSquare(normalized, fromR / extent);
+        vec2 target = roundedSquareMap(canonical, toR / extent).point;
+        return pointSign * (halfSize - vec2(extent) + target * extent);
       }
       float virtualRadiusFieldT(vec2 p, float rr, float b) {
         float fieldRadius = max(rr, b);
@@ -1071,6 +1263,61 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         }
         return clamp(dist / b, 0.0, 1.0);
       }
+      float postprocessCornerDepth(float xProgress, float yProgress) {
+        float x = clamp(xProgress, 0.0, 1.0);
+        float y = clamp(yProgress, 0.0, 1.0);
+        float lower = min(x, y);
+        float difference = abs(x - y);
+        float blendWidth = 6.0 * x * y * (1.0 - x) * (1.0 - y);
+        if (blendWidth <= 1e-5 || difference >= blendWidth) return lower;
+        float blendProgress = difference / blendWidth;
+        float remaining = 1.0 - blendProgress;
+        return clamp(lower + 0.5 * difference * remaining * remaining, 0.0, 1.0);
+      }
+      float sourcePostprocessDepth(vec2 p, float rr, float b) {
+        if (rr >= b) return fieldT(p, rr);
+        float dx = halfSize.x - abs(p.x);
+        float dy = halfSize.y - abs(p.y);
+        float topProgress = clamp((dy - arcOuter(dx, rr)) / b, 0.0, 1.0);
+        float sideProgress = clamp((dx - arcOuter(dy, rr)) / b, 0.0, 1.0);
+        return postprocessCornerDepth(topProgress, sideProgress);
+      }
+      vec2 preservePostprocessDepth(
+        vec2 actualPoint, vec2 mappedPoint, float rr, float opticalR, float b
+      ) {
+        float strength = clamp((opticalR - rr) / max(b, 1.0), 0.0, 1.0);
+        if (strength <= 1e-5) return mappedPoint;
+        float extent = min(
+          max(max(max(b, rr), opticalR), 1.0),
+          min(halfSize.x, halfSize.y)
+        );
+        vec2 edgeDistance = halfSize - abs(actualPoint);
+        if (edgeDistance.x >= extent || edgeDistance.y >= extent) return mappedPoint;
+
+        float baseT = fieldT(mappedPoint, opticalR);
+        float sourceT = sourcePostprocessDepth(actualPoint, rr, b);
+        float targetT = mix(baseT, sourceT, strength);
+        vec2 result = mappedPoint;
+        float gradientStep = 0.5;
+        for (int iteration = 0; iteration < 3; iteration++) {
+          float error = fieldT(result, opticalR) - targetT;
+          float gx = (
+            fieldT(result + vec2(gradientStep, 0.0), opticalR)
+            - fieldT(result - vec2(gradientStep, 0.0), opticalR)
+          ) / (2.0 * gradientStep);
+          float gy = (
+            fieldT(result + vec2(0.0, gradientStep), opticalR)
+            - fieldT(result - vec2(0.0, gradientStep), opticalR)
+          ) / (2.0 * gradientStep);
+          float gradientSquared = gx * gx + gy * gy;
+          if (gradientSquared <= 1e-10) break;
+          float stepLength = clamp(
+            error / gradientSquared, -b * b, b * b
+          );
+          result -= vec2(gx, gy) * stepLength;
+        }
+        return result;
+      }
       vec2 fieldNormal(vec2 p, float rr) {
         float e = 0.5;
         float dx = fieldT(p + vec2(e, 0.0), rr) - fieldT(p - vec2(e, 0.0), rr);
@@ -1082,15 +1329,18 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         float rr0 = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
         float b0 = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
         float opticalR = resolveVirtualRadius(virtualRadius, b0);
-        bool geometryWarp = abs(rr0 - opticalR) > 1e-4;
-        vec2 shadeLocal = geometryWarp ? warpToVirtualRadiusPoint(vLocal, rr0, opticalR, b0) : vLocal;
+        vec2 shadeLocal = preservePostprocessDepth(
+          vLocal,
+          mapActualToVirtualPoint(vLocal, rr0, opticalR, b0),
+          rr0, opticalR, b0
+        );
         vec2 uv = (glassOffset + shadeLocal) / imagePlaneSize + 0.5;
-        float sd = sdRound(vLocal, halfSize, rr0);
-        float distFromEdge0 = -sd;
-        // Anti-aliased shape edge (与 Treeland shapeAlpha 一致)
-        float shapeAlpha = smoothstep(2.0, -2.0, sd);
-        // outerSoft：防止轮廓处折射尖峰；contentEdgePull 抬高 softening 下限
-        float outerSoft = smoothstep(0.0, 2.5, distFromEdge0);
+        float shapeSd = sdRound(vLocal, halfSize, rr0);
+        float opticalDistFromEdge = -sdRound(shadeLocal, halfSize, opticalR);
+        // Anti-aliased shape edge uses the final actual outline only.
+        float shapeAlpha = smoothstep(2.0, -2.0, shapeSd);
+        // All glass shading is complete in virtual coordinates before deformation.
+        float outerSoft = smoothstep(0.0, 2.5, opticalDistFromEdge);
         float edgePull = clamp(contentEdgePull, 0.0, 1.0);
         float slopeSoft = mix(outerSoft, 1.0, edgePull);
         float t = fieldT(shadeLocal, opticalR);
@@ -1118,8 +1368,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         vec3 color = texture2D(map, clamp(sampleUv, vec2(0.001), vec2(0.999))).rgb;
         // 镜面高光（与 liquidglass.frag specular 分支一致）
         if (specular > 1e-4) {
-          float rr = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
-          float distFromEdge = -sdRound(vLocal, halfSize, rr);
+          float distFromEdge = opticalDistFromEdge;
           vec3 N = normalize(vec3(n2 * slopeMag, 1.0));
           float oneMinusCos = 1.0 - clamp(N.z, 0.0, 1.0);
           float oneMinusCos2 = oneMinusCos * oneMinusCos;
@@ -1135,8 +1384,7 @@ function makeRefractedMaterial(P, hx, hy, tex, mode) {
         }
         // 内边缘阴影（与 liquidglass.frag innerShadow 一致）
         if (innerShadow > 1e-4) {
-          float rr2 = clamp(radius, 0.0, min(halfSize.x, halfSize.y));
-          float distFromEdge2 = -sdRound(vLocal, halfSize, rr2);
+          float distFromEdge2 = opticalDistFromEdge;
           float bezel2 = min(max(bezelWidth, 1.0), max(min(halfSize.x, halfSize.y) - 1.0, 1.0));
           float shadow = 1.0 - smoothstep(0.0, bezel2 * 0.6, distFromEdge2);
           color *= mix(1.0, 0.75, shadow * clamp(innerShadow, 0.0, 1.0));
@@ -1349,12 +1597,23 @@ function buildViewB(group) {
   const geometryWarp = Math.abs(P.radius - opticalRadius) > 1e-4;
   const outlineLoop = resampledOutline(hx, hy, P.radius, M);
   const h0 = surfaceProfile(0)[0];
-  const pos = [], col = [], idx = [];
+  const pos = [], nor = [], col = [], idx = [];
   const cEdge = new THREE.Color(0xf59e0b), cMid = new THREE.Color(0x38bdf8), cFlat = new THREE.Color(0xe8f6ff);
   const tmp = new THREE.Color();
-  const pushVertex = (x, y, sx, sy, sampleMode) => {
+  const pushVertex = (x, y, sx, sy, sampleMode, jacobian = [1, 0, 0, 1]) => {
     const f = fieldAt(sx, sy, hx, hy, opticalRadius, P.bezelWidth, sampleMode);
-    pos.push(x, y, surfaceProfile(f.t)[0] * thick);
+    const [height, profileDerivative] = surfaceProfile(f.t);
+    const virtualNormal = fieldNormal(
+      sx, sy, hx, hy, opticalRadius, P.bezelWidth, sampleMode, opticalRadius,
+    );
+    const gradientScale = -profileDerivative * thick / virtualNormal.localBezel;
+    const gradientX = virtualNormal.n2[0] * gradientScale;
+    const gradientY = virtualNormal.n2[1] * gradientScale;
+    const actualGradientX = jacobian[0] * gradientX + jacobian[2] * gradientY;
+    const actualGradientY = jacobian[1] * gradientX + jacobian[3] * gradientY;
+    const normal = V(-actualGradientX, -actualGradientY, 1).normalize();
+    pos.push(x, y, height * thick);
+    nor.push(normal.x, normal.y, normal.z);
     if (f.t >= 1) tmp.copy(cFlat);
     else if (f.t > 0.5) tmp.copy(cMid).lerp(cFlat, (f.t - 0.5) * 2);
     else tmp.copy(cEdge).lerp(cMid, f.t * 2);
@@ -1371,8 +1630,12 @@ function buildViewB(group) {
           const [nx, ny] = roundedRectNormal(x, y, hx, hy, P.radius);
           x -= nx * sd; y -= ny * sd;
         }
-        const [sx, sy] = warpToVirtualRadiusPoint(x, y, hx, hy, P.radius, opticalRadius, bezel);
-        pushVertex(x, y, sx, sy, mode);
+        const mapped = mapPostprocessedOpticalPointWithJacobian(
+          [x, y], [hx, hy], P.radius, opticalRadius, bezel,
+        );
+        pushVertex(
+          x, y, mapped.point[0], mapped.point[1], mode, mapped.jacobian,
+        );
       }
     }
     for (let j = 0; j < NY; j++) {
@@ -1404,9 +1667,9 @@ function buildViewB(group) {
   }
   const tg = new THREE.BufferGeometry();
   tg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  tg.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   tg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   tg.setIndex(idx);
-  tg.computeVertexNormals();
   if (previewMode) {
     const rg = tg.clone();
     const rp = rg.attributes.position.array;
