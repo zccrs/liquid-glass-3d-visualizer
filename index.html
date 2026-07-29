@@ -149,6 +149,7 @@
       <input id="textureUpload" type="file" accept="image/*">
       <div class="upload-desc">上传后玻璃下方图片会按折射/模糊/着色参数产生位移与效果。</div>
       <label class="toggle-row"><input id="clearGlass" type="checkbox"> 透明玻璃材质（无色，更接近 Treeland 实际效果）</label>
+      <label class="toggle-row"><input id="glassTransparent" type="checkbox"> 透视玻璃体（可看穿被遮挡的侧面，关闭后仅显示朝向相机的面）</label>
       <div class="button-row"><button id="resetParams" class="mini-button" type="button">重置参数</button><button id="clearWallpaper" class="mini-button" type="button">清空背景图</button></div>
     </div>
     <div class="section-title">几何 / 折射</div>
@@ -204,6 +205,7 @@ const textureState = {
 
 const effectState = {
   blurEnabled: true,
+  glassTransparent: true,
 };
 
 function syncVizTextureState() {
@@ -213,6 +215,7 @@ function syncVizTextureState() {
   window.__viz.glassOffset = { x: textureState.glassOffset.x, y: textureState.glassOffset.y };
   window.__viz.clearGlass = textureState.clearGlass;
   window.__viz.dragEnabled = textureState.dragEnabled;
+  window.__viz.glassTransparent = effectState.glassTransparent;
   window.__viz.blurEnabled = effectState.blurEnabled;
   window.__viz.blurDebug = textureState.blurDebug;
   window.__viz.debugRefractionAt = debugRefractionAt;
@@ -267,6 +270,7 @@ function saveAppState() {
   localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify({
     params,
     clearGlass: textureState.clearGlass,
+    glassTransparent: effectState.glassTransparent,
     blurEnabled: effectState.blurEnabled,
     glassOffset: { x: textureState.glassOffset.x, y: textureState.glassOffset.y },
   }));
@@ -283,6 +287,7 @@ function loadSavedState() {
       }
     }
     textureState.clearGlass = !!saved.clearGlass;
+    effectState.glassTransparent = saved.glassTransparent !== false;
     effectState.blurEnabled = saved.blurEnabled !== false;
     if (saved.glassOffset && Number.isFinite(saved.glassOffset.x) && Number.isFinite(saved.glassOffset.y)) {
       textureState.glassOffset.set(saved.glassOffset.x, saved.glassOffset.y);
@@ -302,13 +307,17 @@ function syncParamControls() {
   }
   const blurBox = document.getElementById('blurEnabled');
   if (blurBox) blurBox.checked = effectState.blurEnabled;
+  const glassTransBox = document.getElementById('glassTransparent');
+  if (glassTransBox) glassTransBox.checked = effectState.glassTransparent;
 }
 
 function resetParams() {
   for (const [key, value] of Object.entries(PARAM_DEFAULTS)) PARAMS[key].v = value;
   textureState.clearGlass = false;
   effectState.blurEnabled = true;
+  effectState.glassTransparent = true;
   document.getElementById('clearGlass').checked = false;
+  document.getElementById('glassTransparent').checked = true;
   syncParamControls();
   saveAppState();
   rebuild();
@@ -1284,7 +1293,7 @@ function makeRefractedMaterial(P, hx, hy, tex) {
   });
 }
 
-function makeGlassMaskMaterial() {
+function makeGlassMaskMaterial(transp) {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -1334,11 +1343,11 @@ function makeGlassMaskMaterial() {
       }
     `,
     vertexColors: true,
-    side: THREE.DoubleSide,
+    side: transp ? THREE.DoubleSide : THREE.FrontSide,
   });
 }
 
-function makeSideMaskMaterial() {
+function makeSideMaskMaterial(transp) {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -1375,7 +1384,7 @@ function makeSideMaskMaterial() {
         gl_FragColor = vec4(rgb, 0.42 * mask + 0.04 * (1.0 - mask));
       }
     `,
-    side: THREE.DoubleSide,
+    side: transp ? THREE.DoubleSide : THREE.FrontSide,
   });
 }
 
@@ -1564,9 +1573,10 @@ function buildViewB(group) {
     viewB.refractedMesh = refracted;
   }
 
-  const topMesh = new THREE.Mesh(tg, previewMode ? makeGlassMaskMaterial() : new THREE.MeshPhysicalMaterial({
-    vertexColors: true, transparent: true, opacity: 0.56, roughness: 0.12, metalness: 0,
-    clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide, depthWrite: true,
+  const transp = effectState.glassTransparent;
+  const topMesh = new THREE.Mesh(tg, previewMode ? makeGlassMaskMaterial(transp) : new THREE.MeshPhysicalMaterial({
+    vertexColors: true, transparent: transp, opacity: transp ? 0.56 : 1, roughness: 0.12, metalness: 0,
+    clearcoat: 1, clearcoatRoughness: 0.1, side: transp ? THREE.DoubleSide : THREE.FrontSide, depthWrite: true,
   }));
   topMesh.renderOrder = 2;
   glassGroup.add(topMesh);
@@ -1589,8 +1599,8 @@ function buildViewB(group) {
   sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
   sg.setIndex(si);
   sg.computeVertexNormals();
-  glassGroup.add(new THREE.Mesh(sg, previewMode ? makeSideMaskMaterial() : new THREE.MeshPhysicalMaterial({
-    color: 0x7cc4e8, transparent: true, opacity: 0.55, roughness: 0.2, metalness: 0, side: THREE.DoubleSide,
+  glassGroup.add(new THREE.Mesh(sg, previewMode ? makeSideMaskMaterial(transp) : new THREE.MeshPhysicalMaterial({
+    color: 0x7cc4e8, transparent: transp, opacity: transp ? 0.55 : 1, roughness: 0.2, metalness: 0, side: transp ? THREE.DoubleSide : THREE.FrontSide,
   })));
   }
   // 轮廓线：只在讲解模式显示；贴图预览里会变成玻璃底部白边。
@@ -1718,6 +1728,13 @@ document.getElementById('textureUpload').addEventListener('change', ev => {
 document.getElementById('clearGlass').checked = textureState.clearGlass;
 document.getElementById('clearGlass').addEventListener('change', ev => {
   textureState.clearGlass = ev.target.checked;
+  syncVizTextureState();
+  rebuild();
+  saveAppState();
+});
+document.getElementById('glassTransparent').checked = effectState.glassTransparent;
+document.getElementById('glassTransparent').addEventListener('change', ev => {
+  effectState.glassTransparent = ev.target.checked;
   syncVizTextureState();
   rebuild();
   saveAppState();
